@@ -1,29 +1,137 @@
-Develop a GitHub Action specifically designed for conducting AI-assisted code reviews. This action should leverage ChatGPT through the OpenAI API and allow for customization and efficient interaction with code changes.
+# AI Code Review GitHub Action
 
-### Requirements:
+A GitHub Action for AI-assisted code reviews using ChatGPT or other AI models. This action leverages the OpenAI API to analyze code changes in pull requests and provide constructive feedback.
 
-1. **ChatGPT Integration**: 
-   - The action should default to using ChatGPT via the OpenAI API for code review tasks. 
-   - Provide functionality to easily switch between different AI models as needed.
+## Features
 
-2. **Configuration Management**:
-   - Implement a settings file within the repository to allow users to specify:
-     - File filters (e.g., which types of files to include/exclude during the review).
-     - Custom prompt rules that determine how the AI engages with the code to deliver feedback.
+- **ChatGPT Integration**: Use ChatGPT to review your code through the OpenAI API
+- **Configurable Settings**: Customize file filters and review prompts via configuration file
+- **Agentic Review Mode**: AI makes multiple calls to thoroughly assess the code
+- **Pull Request Integration**: Updates PR status and adds review comments automatically
 
-3. **Agentic Code Review Mode**:
-   - The action should operate in an 'agentic mode', enabling it to make multiple calls to the AI to thoroughly assess the code.
-   - The code review process should intelligently iterate through the code, potentially asking clarifying questions or deep-diving into sections that need more scrutiny.
+## Usage
 
-4. **Pull Request Interaction**:
-   - Upon execution, the action should update the Pull Request status to indicate that a code review is in progress.
-   - After the review is completed, it should automatically post comments on the Pull Request detailing each detected issue, including suggestions for improvements.
+Add the following to your GitHub Actions workflow file (e.g., `.github/workflows/code-review.yml`):
 
-### Additional Considerations:
-- Ensure the action adheres to best practices for API usage and rate limiting.
-- Provide detailed logging for debugging and transparency in the review process.
-- Implement security measures to protect sensitive repository data when communicating with the OpenAI API.
+```yaml
+name: AI Code Review
 
----
+on:
+  pull_request:
+    types: [opened, synchronize]
 
-This enhanced prompt provides clearer structure and detail, ensuring a more comprehensive understanding of the project's goals and requirements.
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: AI Code Review
+        uses: your-github-username/code-review-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # Optional parameters:
+          # config-path: '.github/code-review-config.yml'
+          # model: 'gpt-4-turbo'
+          # comment-threshold: '50'
+```
+
+## Configuration
+
+Create a configuration file at `.github/code-review-config.yml` (or specify a custom path using the `config-path` parameter):
+
+```yaml
+# Files to include in the review (glob patterns)
+includeFiles:
+  - '**/*.ts'
+  - '**/*.js'
+  # Add more patterns as needed
+
+# Files to exclude from the review (glob patterns)
+excludeFiles:
+  - '**/node_modules/**'
+  - '**/dist/**'
+  # Add more patterns as needed
+
+# AI prompt rules
+promptRules:
+  systemPrompt: "You are an expert code reviewer..."
+  userPrompt: "Please review the following code changes: {code}"
+
+# Model configuration
+model: 'gpt-4-turbo'
+commentThreshold: 50
+maxTokens: 4096
+temperature: 0.7
+```
+
+A sample configuration file is provided in the repository (`sample-config.yml`).
+
+## Development
+
+### Prerequisites
+
+- Node.js (v18 or later)
+- npm or yarn
+
+### Setup
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Install required type definitions:
+   ```bash
+   npm install --save-dev @types/js-yaml @types/minimatch
+   ```
+4. Build the project:
+   ```bash
+   npm run build
+   ```
+
+Alternatively, use the provided setup script:
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+### Troubleshooting TypeScript Errors
+
+If you encounter TypeScript errors related to missing type declarations:
+
+1. **js-yaml type errors**: Make sure you have installed `@types/js-yaml`:
+   ```bash
+   npm install --save-dev @types/js-yaml
+   ```
+
+2. **minimatch type errors**: Ensure you have installed `@types/minimatch` and are importing it correctly:
+   ```bash
+   npm install --save-dev @types/minimatch
+   ```
+   
+   In your code, use: `import { minimatch } from 'minimatch';`
+
+3. **Octokit type errors**: The project includes custom type declarations in `src/types/github.d.ts` to fix compatibility issues between `@actions/github` and `@octokit/rest`. If you're still experiencing errors, check this file and the `typeRoots` setting in `tsconfig.json`.
+
+### Testing Locally
+
+To test the action locally, you can use tools like [act](https://github.com/nektos/act):
+
+```bash
+act pull_request -s OPENAI_API_KEY=your-api-key
+```
+
+## Security Considerations
+
+- Store your OpenAI API key as a GitHub secret
+- Be cautious about what code you send to the OpenAI API
+- Consider privacy implications when reviewing sensitive code
+
+## License
+
+MIT
