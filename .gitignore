@@ -5,7 +5,8 @@ yarn.lock
 pnpm-lock.yaml
 
 # TypeScript build output
-dist/
+# For GitHub Actions, we NEED to include dist/
+# dist/
 lib/
 build/
 *.tsbuildinfo
