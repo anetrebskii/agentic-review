@@ -1,0 +1,30 @@
+name: 'AI Code Review'
+description: 'GitHub Action for AI-assisted code reviews using ChatGPT'
+author: 'Your Name'
+branding:
+  icon: 'code'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: 'GitHub token for accessing the repository'
+    required: true
+  openai-api-key:
+    description: 'OpenAI API key for using ChatGPT'
+    required: true
+  config-path:
+    description: 'Path to the configuration file'
+    required: false
+    default: '.github/code-review-config.yml'
+  model:
+    description: 'OpenAI model to use'
+    required: false
+    default: 'gpt-4-turbo'
+  comment-threshold:
+    description: 'Minimum confidence threshold for posting comments (0-100)'
+    required: false
+    default: '50'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js' 
