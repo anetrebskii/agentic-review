@@ -483,25 +483,51 @@ class GitHubService {
     calculatePositionFromLine(patch, lineNumber) {
         if (!patch)
             return undefined;
+        // Handle empty files or very simple patches
+        if (patch.trim() === '')
+            return 1;
         const lines = patch.split('\n');
         let currentLineNumber = 0;
         let positionInDiff = 0;
         let foundHunk = false;
+        let lastHunkPosition = 0;
+        // First, check if this is a new file with only additions
+        const isNewFile = lines.some(line => line.startsWith('new file mode'));
+        if (isNewFile) {
+            // For new files, we can often use the line number directly
+            // Find the appropriate hunk that contains our line
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.startsWith('@@')) {
+                    const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                    if (match && match[1]) {
+                        const hunkStart = parseInt(match[1], 10);
+                        // If our target line is in this hunk's range, calculate its position
+                        if (lineNumber >= hunkStart) {
+                            // lineNumber - hunkStart + hunkHeader position + 1
+                            const headerPosition = i + 1; // Position of the line after the hunk header
+                            return headerPosition + (lineNumber - hunkStart);
+                        }
+                    }
+                }
+            }
+        }
+        // Standard diff position calculation for modified files
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             // Handle hunk headers
             if (line.startsWith('@@')) {
                 foundHunk = true;
+                lastHunkPosition = i;
                 // Parse the hunk header to get starting line numbers
                 // Format: @@ -oldStart,oldLines +newStart,newLines @@
                 const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
                 if (match && match[1]) {
                     currentLineNumber = parseInt(match[1], 10); // Line numbers in patches are 1-indexed
                 }
-                // Don't reset positionInDiff - it should be continuous through the diff
             }
             if (foundHunk) {
-                positionInDiff++;
+                positionInDiff = i - lastHunkPosition; // Position relative to current hunk
                 // Skip deletion lines as they don't affect file line numbers
                 if (!line.startsWith('-') || line.startsWith('---')) {
                     // If it's an addition or context line, it exists in the new file
@@ -515,6 +541,12 @@ class GitHubService {
                     }
                 }
             }
+        }
+        // If we can't determine position precisely, as a last resort for non-empty patches:
+        // Fall back to the first position in the last hunk
+        if (foundHunk) {
+            core.warning(`Couldn't find exact position for line ${lineNumber}, falling back to approximate position`);
+            return 1; // Default to position 1 (right after the first hunk header)
         }
         // Line was not found in the diff
         return undefined;
@@ -597,6 +629,81 @@ class GitHubService {
         }
     }
     /**
+     * Determine if a file can be commented on in a PR
+     * @param file The pull request file
+     * @returns Boolean indicating if comments are possible
+     */
+    isFileCommentable(file) {
+        // GitHub doesn't allow comments on deleted files
+        if (file.status === 'removed')
+            return false;
+        // Some file types (binary files, very large files) don't have patches
+        // But we can still comment on them in some cases
+        if (!file.patch) {
+            // Check file extension for common binary types that can't be commented
+            const binaryExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe'];
+            const isLikelyBinary = binaryExtensions.some(ext => file.filename.toLowerCase().endsWith(ext));
+            return !isLikelyBinary;
+        }
+        return true;
+    }
+    /**
+     * Special handling for certain file types that need extra care for commenting
+     * @param file The PR file
+     * @param lineNumber The line number to comment on
+     * @returns A position value suitable for use in GitHub API
+     */
+    getSpecialFilePosition(file, lineNumber) {
+        // Configuration and YAML files often need special handling
+        const isConfigFile = file.filename.endsWith('.yml') ||
+            file.filename.endsWith('.yaml') ||
+            file.filename.includes('config') ||
+            file.filename.includes('.github/');
+        // Special handling for GitHub workflow and config files
+        const isGitHubFile = file.filename.startsWith('.github/');
+        if (isConfigFile) {
+            // For new config files, use the line number directly
+            if (file.status === 'added') {
+                return lineNumber || 1;
+            }
+            // For GitHub workflow files in particular, the first position is often safest
+            if (isGitHubFile) {
+                core.info(`Using first position for GitHub config file: ${file.filename}`);
+                return 1;
+            }
+            // For modified config files with patches, we'll make a best effort
+            if (file.patch) {
+                // Look for the line in the patch
+                const lines = file.patch.split('\n');
+                // For YAML files, find the first '+' line that might match our context
+                if (file.filename.endsWith('.yml') || file.filename.endsWith('.yaml')) {
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        // Look for any added lines (starting with +)
+                        if (line.startsWith('+') && !line.startsWith('+++')) {
+                            return i + 1;
+                        }
+                    }
+                }
+                // First try to find the exact line if we can
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line.startsWith('+') && line.includes(`line ${lineNumber}`)) {
+                        return i + 1;
+                    }
+                }
+                // If we can't find the exact line, use the first available position in a hunk
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].startsWith('@@')) {
+                        // Return position right after the hunk header
+                        return i + 1;
+                    }
+                }
+            }
+        }
+        return undefined;
+    }
+    /**
      * Adds comments to the PR based on the AI review
      * @param prNumber Pull request number
      * @param comments Comments to add
@@ -622,10 +729,39 @@ class GitHubService {
                         body: comment.body,
                     };
                 }
+                // Find the matching file
+                const file = prFiles.find(f => f.filename === comment.path);
+                if (!file) {
+                    core.warning(`File "${comment.path}" not found in PR changes. Skipping comment.`);
+                    return null;
+                }
+                // Check if file can be commented on 
+                if (!this.isFileCommentable(file)) {
+                    core.warning(`File "${comment.path}" cannot be commented on (likely binary or deleted). Skipping comment.`);
+                    return null;
+                }
+                // Try special file handling first for config files
+                const specialPosition = this.getSpecialFilePosition(file, comment.line);
+                if (specialPosition !== undefined) {
+                    core.info(`Using special position handling for file "${comment.path}" line ${comment.line}`);
+                    return {
+                        path: comment.path,
+                        position: specialPosition,
+                        body: comment.body,
+                    };
+                }
                 // If we have a line number but no position, try to calculate position
                 if (comment.line !== undefined) {
-                    const file = prFiles.find(f => f.filename === comment.path);
-                    if (file && file.patch) {
+                    // Special case: For new files, position equals the line number
+                    if (file.status === 'added' && (!file.patch || file.patch.trim() === '')) {
+                        return {
+                            path: comment.path,
+                            position: comment.line,
+                            body: comment.body,
+                        };
+                    }
+                    // For files with patches, use the patch to calculate position
+                    if (file.patch) {
                         const position = this.calculatePositionFromLine(file.patch, comment.line);
                         if (position) {
                             return {
@@ -636,14 +772,19 @@ class GitHubService {
                         }
                     }
                 }
-                // If we couldn't determine position, log a warning and skip this comment
-                core.warning(`Could not determine position for comment on ${comment.path}${comment.line ? ` line ${comment.line}` : ''}. This comment will be skipped.`);
-                return null;
+                // If we couldn't determine position, try using line 1 as a fallback
+                const fallbackPosition = 1;
+                core.warning(`Could not determine exact position for comment on ${comment.path}${comment.line ? ` line ${comment.line}` : ''}. Using fallback position ${fallbackPosition}.`);
+                return {
+                    path: comment.path,
+                    position: fallbackPosition,
+                    body: `[Note: This comment was intended for ${comment.line ? `line ${comment.line}` : 'the file'}, but GitHub API limitations required placing it here]\n\n${comment.body}`,
+                };
             }));
-            // Filter out comments where position couldn't be determined
+            // Filter out null comments (ones we couldn't create)
             const validComments = commentsWithPositions.filter((comment) => comment !== null);
             if (validComments.length === 0) {
-                core.warning('No valid comments with positions to add.');
+                core.warning('No valid comments to add after position determination.');
                 return;
             }
             // Create review with comments
