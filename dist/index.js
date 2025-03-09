@@ -278,16 +278,30 @@ class CodeReviewService {
      * @returns Extracted comments
      */
     parseReviewFeedback(file, initialAnalysis, followUpAnalysis) {
-        const comments = [];
-        // For now, we'll create a single comment with the combined analysis
-        // In a more advanced implementation, we could parse the AI response more granularly
-        // and map comments to specific line numbers in the changed content
-        comments.push({
-            path: file.filename,
-            body: `## AI Code Review Feedback\n\n${initialAnalysis}\n\n### Follow-up Analysis\n\n${followUpAnalysis}`,
-            confidence: 100 // High confidence for the overall analysis
-        });
-        return comments;
+        // Since we're consolidating all comments into a single PR comment,
+        // we'll just create a well-formatted single comment for each file
+        let commentBody = '';
+        // Extract useful information from the file
+        const changeInfo = `**Changes:** ${file.additions || 0} additions, ${file.deletions || 0} deletions`;
+        // Add initial analysis
+        if (initialAnalysis && initialAnalysis.trim() !== '') {
+            commentBody += `### Initial Analysis\n\n${initialAnalysis}\n\n`;
+        }
+        // Add follow-up analysis if it contains actual content
+        if (followUpAnalysis &&
+            followUpAnalysis.trim() !== '' &&
+            followUpAnalysis !== 'No further inquiries.' &&
+            followUpAnalysis !== 'No additional issues identified.') {
+            commentBody += `### Additional Feedback\n\n${followUpAnalysis}\n\n`;
+        }
+        // Add change statistics
+        commentBody += `\n\n${changeInfo}`;
+        // Return as a single comment for this file
+        return [{
+                path: file.filename,
+                body: commentBody,
+                confidence: 100 // High confidence for the overall analysis
+            }];
     }
 }
 exports.CodeReviewService = CodeReviewService;
@@ -717,89 +731,34 @@ class GitHubService {
                 core.info('No comments to add based on confidence threshold.');
                 return;
             }
-            // Get PR files to calculate positions for line-based comments
-            const prFiles = await this.getChangedFiles(prNumber);
-            // Prepare comments with proper position values
-            const commentsWithPositions = await Promise.all(filteredComments.map(async (comment) => {
-                // If position is already set, use it
-                if (comment.position !== undefined) {
-                    return {
-                        path: comment.path,
-                        position: comment.position,
-                        body: comment.body,
-                    };
+            // Consolidate all comments into one single PR comment
+            let combinedBody = '# AI Code Review Summary\n\n';
+            // Group comments by file for better organization
+            const commentsByFile = {};
+            filteredComments.forEach(comment => {
+                if (!commentsByFile[comment.path]) {
+                    commentsByFile[comment.path] = [];
                 }
-                // Find the matching file
-                const file = prFiles.find(f => f.filename === comment.path);
-                if (!file) {
-                    core.warning(`File "${comment.path}" not found in PR changes. Skipping comment.`);
-                    return null;
-                }
-                // Check if file can be commented on 
-                if (!this.isFileCommentable(file)) {
-                    core.warning(`File "${comment.path}" cannot be commented on (likely binary or deleted). Skipping comment.`);
-                    return null;
-                }
-                // Try special file handling first for config files
-                const specialPosition = this.getSpecialFilePosition(file, comment.line);
-                if (specialPosition !== undefined) {
-                    core.info(`Using special position handling for file "${comment.path}" line ${comment.line}`);
-                    return {
-                        path: comment.path,
-                        position: specialPosition,
-                        body: comment.body,
-                    };
-                }
-                // If we have a line number but no position, try to calculate position
-                if (comment.line !== undefined) {
-                    // Special case: For new files, position equals the line number
-                    if (file.status === 'added' && (!file.patch || file.patch.trim() === '')) {
-                        return {
-                            path: comment.path,
-                            position: comment.line,
-                            body: comment.body,
-                        };
-                    }
-                    // For files with patches, use the patch to calculate position
-                    if (file.patch) {
-                        const position = this.calculatePositionFromLine(file.patch, comment.line);
-                        if (position) {
-                            return {
-                                path: comment.path,
-                                position,
-                                body: comment.body,
-                            };
-                        }
-                    }
-                }
-                // If we couldn't determine position, try using line 1 as a fallback
-                const fallbackPosition = 1;
-                core.warning(`Could not determine exact position for comment on ${comment.path}${comment.line ? ` line ${comment.line}` : ''}. Using fallback position ${fallbackPosition}.`);
-                return {
-                    path: comment.path,
-                    position: fallbackPosition,
-                    body: `[Note: This comment was intended for ${comment.line ? `line ${comment.line}` : 'the file'}, but GitHub API limitations required placing it here]\n\n${comment.body}`,
-                };
-            }));
-            // Filter out null comments (ones we couldn't create)
-            const validComments = commentsWithPositions.filter((comment) => comment !== null);
-            if (validComments.length === 0) {
-                core.warning('No valid comments to add after position determination.');
-                return;
-            }
-            // Create review with comments
-            await this.octokit.rest.pulls.createReview({
+                commentsByFile[comment.path].push(comment);
+            });
+            // Add file-specific comments to the combined body
+            Object.entries(commentsByFile).forEach(([filename, fileComments]) => {
+                combinedBody += `## File: ${filename}\n\n`;
+                fileComments.forEach(comment => {
+                    combinedBody += comment.body + '\n\n';
+                });
+            });
+            // Create a single issue comment instead of a review with multiple comments
+            await this.octokit.rest.issues.createComment({
                 owner,
                 repo,
-                pull_number: prNumber,
-                commit_id: this.context.payload.pull_request?.head.sha || '',
-                event: 'COMMENT',
-                comments: validComments,
+                issue_number: prNumber,
+                body: combinedBody
             });
-            core.info(`Added ${validComments.length} review comments to PR #${prNumber}`);
+            core.info(`Added a single combined review comment to PR #${prNumber} with feedback for ${Object.keys(commentsByFile).length} files`);
         }
         catch (error) {
-            core.error(`Error adding review comments: ${error instanceof Error ? error.message : String(error)}`);
+            core.error(`Error adding review comment: ${error instanceof Error ? error.message : String(error)}`);
             throw error;
         }
     }

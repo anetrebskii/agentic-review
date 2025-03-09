@@ -181,17 +181,35 @@ export class CodeReviewService {
     initialAnalysis: string, 
     followUpAnalysis: string
   ): CodeReviewComment[] {
-    const comments: CodeReviewComment[] = [];
+    // Since we're consolidating all comments into a single PR comment,
+    // we'll just create a well-formatted single comment for each file
     
-    // For now, we'll create a single comment with the combined analysis
-    // In a more advanced implementation, we could parse the AI response more granularly
-    // and map comments to specific line numbers in the changed content
-    comments.push({
+    let commentBody = '';
+    
+    // Extract useful information from the file
+    const changeInfo = `**Changes:** ${file.additions || 0} additions, ${file.deletions || 0} deletions`;
+    
+    // Add initial analysis
+    if (initialAnalysis && initialAnalysis.trim() !== '') {
+      commentBody += `### Initial Analysis\n\n${initialAnalysis}\n\n`;
+    }
+    
+    // Add follow-up analysis if it contains actual content
+    if (followUpAnalysis && 
+        followUpAnalysis.trim() !== '' && 
+        followUpAnalysis !== 'No further inquiries.' &&
+        followUpAnalysis !== 'No additional issues identified.') {
+      commentBody += `### Additional Feedback\n\n${followUpAnalysis}\n\n`;
+    }
+    
+    // Add change statistics
+    commentBody += `\n\n${changeInfo}`;
+    
+    // Return as a single comment for this file
+    return [{
       path: file.filename,
-      body: `## AI Code Review Feedback\n\n${initialAnalysis}\n\n### Follow-up Analysis\n\n${followUpAnalysis}`,
+      body: commentBody,
       confidence: 100 // High confidence for the overall analysis
-    });
-    
-    return comments;
+    }];
   }
 } 
