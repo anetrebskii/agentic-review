@@ -18,6 +18,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          debug: true
           # Optional parameters:
           config-path: '.github/code-review-config.yml'
           # model: 'gpt-4-turbo'
