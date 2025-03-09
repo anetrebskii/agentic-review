@@ -392,7 +392,7 @@ class GitHubService {
     async getChangedFiles(prNumber) {
         try {
             const { owner, repo } = this.context.repo;
-            const response = await this.octokit.pulls.listFiles({
+            const response = await this.octokit.rest.pulls.listFiles({
                 owner,
                 repo,
                 pull_number: prNumber,
@@ -495,7 +495,7 @@ class GitHubService {
     async getFileContent(path) {
         try {
             const { owner, repo } = this.context.repo;
-            const response = await this.octokit.repos.getContent({
+            const response = await this.octokit.rest.repos.getContent({
                 owner,
                 repo,
                 path,
@@ -546,7 +546,7 @@ class GitHubService {
     async completeCheckRun(checkRunId, conclusion, summary) {
         try {
             const { owner, repo } = this.context.repo;
-            await this.octokit.checks.update({
+            await this.octokit.rest.checks.update({
                 owner,
                 repo,
                 check_run_id: checkRunId,
@@ -579,7 +579,7 @@ class GitHubService {
                 return;
             }
             // Create review with comments
-            await this.octokit.pulls.createReview({
+            await this.octokit.rest.pulls.createReview({
                 owner,
                 repo,
                 pull_number: prNumber,

@@ -100,7 +100,7 @@ export class GitHubService {
   async getChangedFiles(prNumber: number): Promise<EnhancedPRFile[]> {
     try {
       const { owner, repo } = this.context.repo;
-      const response = await this.octokit.pulls.listFiles({
+      const response = await this.octokit.rest.pulls.listFiles({
         owner,
         repo,
         pull_number: prNumber,
@@ -217,7 +217,7 @@ export class GitHubService {
   async getFileContent(path: string): Promise<string> {
     try {
       const { owner, repo } = this.context.repo;
-      const response = await this.octokit.repos.getContent({
+      const response = await this.octokit.rest.repos.getContent({
         owner,
         repo,
         path,
@@ -273,7 +273,7 @@ export class GitHubService {
   ): Promise<void> {
     try {
       const { owner, repo } = this.context.repo;
-      await this.octokit.checks.update({
+      await this.octokit.rest.checks.update({
         owner,
         repo,
         check_run_id: checkRunId,
@@ -311,7 +311,7 @@ export class GitHubService {
       }
       
       // Create review with comments
-      await this.octokit.pulls.createReview({
+      await this.octokit.rest.pulls.createReview({
         owner,
         repo,
         pull_number: prNumber,
