@@ -5,6 +5,7 @@ A GitHub Action for AI-assisted code reviews using ChatGPT or other AI models. T
 ## Features
 
 - **ChatGPT Integration**: Use ChatGPT to review your code through the OpenAI API
+- **Focus on Changes**: Reviews only the changed code in PRs while providing full file context for better analysis
 - **Configurable Settings**: Customize file filters and review prompts via configuration file
 - **Agentic Review Mode**: AI makes multiple calls to thoroughly assess the code
 - **Pull Request Integration**: Updates PR status and adds review comments automatically
@@ -45,29 +46,45 @@ jobs:
 Create a configuration file at `.github/code-review-config.yml` (or specify a custom path using the `config-path` parameter):
 
 ```yaml
-# Files to include in the review (glob patterns)
-includeFiles:
-  - '**/*.ts'
-  - '**/*.js'
-  # Add more patterns as needed
+# AI Code Review Configuration
+# This action reviews only the code changes in pull requests,
+# but also provides file context for better analysis
 
-# Files to exclude from the review (glob patterns)
+# Global excludes - These files will always be excluded
 excludeFiles:
   - '**/node_modules/**'
   - '**/dist/**'
+  - '**/*.test.ts'
   # Add more patterns as needed
 
-# AI prompt rules
-promptRules:
-  systemPrompt: "You are an expert code reviewer..."
-  userPrompt: "Please review the following code changes: {code}"
+# Review rules - Each rule specifies what files to include and what to look for
+rules:
+  - include:
+      - '**/*.ts'
+      - '**/*.tsx'
+    prompt: >
+      Review these TypeScript code CHANGES focusing on type safety, proper interface usage, 
+      and adherence to TypeScript best practices.
 
-# Model configuration
-model: 'gpt-4-turbo'
-commentThreshold: 50
-maxTokens: 4096
-temperature: 0.7
+  - include:
+      - '**/*.js'
+      - '**/*.jsx'
+    prompt: >
+      Review these JavaScript code CHANGES focusing on potential runtime errors,
+      variable scope issues, and modern JavaScript practices.
+
+  # Add more rules for different file types
 ```
+
+Each rule in the configuration defines:
+1. **include**: An array of glob patterns that match files this rule applies to
+2. **prompt**: Specific instructions for reviewing changes to this type of file
+
+The action will automatically match files against these rules and use the appropriate prompt for each file type, providing specialized review feedback based on the language or technology. By focusing specifically on code changes (rather than entire files), the reviews are more relevant and actionable.
+
+You can configure the model settings using the GitHub Action inputs:
+- `model`: OpenAI model to use (default: gpt-4-turbo)
+- `comment-threshold`: Minimum confidence threshold for posting comments (default: 50)
 
 A sample configuration file is provided in the repository (`sample-config.yml`).
 
@@ -94,11 +111,23 @@ A sample configuration file is provided in the repository (`sample-config.yml`).
    npm run build
    ```
 
+The build process uses @vercel/ncc to bundle all dependencies into a single file, which is required for GitHub Actions to work properly.
+
 Alternatively, use the provided setup script:
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
+
+### Building for Distribution
+
+The project uses @vercel/ncc to bundle all dependencies into a single file. This is important because GitHub Actions don't install dependencies when they run in another repository.
+
+The build process:
+1. Compiles TypeScript to JavaScript into the `lib` directory
+2. Uses ncc to bundle all code and dependencies into a single file in the `dist` directory
+
+When committing changes to the repository, always make sure to run the build command to update the distribution files.
 
 ### Troubleshooting TypeScript Errors
 
