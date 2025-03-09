@@ -98,7 +98,9 @@ export class OpenAIService {
 
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
+        'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
         'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+        'The line number must correspond precisely to the line in the diff where the issue exists. ' +
         'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Your review will be used to create GitHub comments at the specified positions. ' +
@@ -121,6 +123,8 @@ export class OpenAIService {
       
       userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
         'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+        'ONLY include comments where you can identify the exact line number. ' +
+        'If you cannot determine the exact line, do not include that comment. ' +
         'Ensure all issues have an exact line number reference. ' +
         'Use feature sentences only - no explanations or reasoning.';
 
@@ -152,7 +156,9 @@ export class OpenAIService {
   private async analyzeWithGenericPrompt(file: EnhancedPRFile): Promise<string> {
     const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
       'Focus specifically on the changes in this pull request, not the entire file. ' +
+      'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
       'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+      'The line number must correspond precisely to the line in the diff where the issue exists. ' +
       'It\'s critical that you identify the precise line number where each issue occurs. ' +
       'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
       'Your review will be used to create GitHub comments at the specified positions. ' +
@@ -176,6 +182,8 @@ export class OpenAIService {
     
     userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
       'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+      'ONLY include comments where you can identify the exact line number. ' +
+      'If you cannot determine the exact line, do not include that comment. ' +
       'Ensure all issues have an exact line number reference. ' +
       'Use feature sentences only - no explanations or reasoning.';
 
@@ -210,7 +218,9 @@ export class OpenAIService {
       
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
+        'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
         'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+        'The line number must correspond precisely to the line in the diff where the issue exists. ' +
         'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Your review will be used to create GitHub comments at the specified positions. ' +

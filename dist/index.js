@@ -291,33 +291,20 @@ class CodeReviewService {
             while ((match = lineIssueRegex.exec(initialAnalysis)) !== null) {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
-                if (issueComment) {
-                    // Check if line number is in change map
-                    let position = undefined;
-                    if (file.changeMap) {
-                        // Try to find the position of this line in the changes
-                        if (file.changeMap.additions.includes(lineNumber)) {
-                            // This is an added line, so it should be in the diff
-                            position = lineNumber;
-                        }
-                    }
+                if (issueComment && lineNumber > 0) {
+                    // Only include comments where we can determine the exact position
+                    // The exact position is the line number itself
                     comments.push({
                         path: file.filename,
                         line: lineNumber,
-                        position: position, // Add position if we can determine it
+                        position: lineNumber, // Use exact line number as position
                         body: issueComment,
                         confidence: 100
                     });
                 }
             }
-            // If no line-specific comments were found, add the entire initial analysis as a general comment
-            if (comments.length === 0) {
-                comments.push({
-                    path: file.filename,
-                    body: initialAnalysis,
-                    confidence: 100
-                });
-            }
+            // We no longer add general comments if no line-specific ones are found
+            // This ensures we only have comments with positions
         }
         // Process follow-up analysis if it contains content
         if (followUpAnalysis &&
@@ -330,33 +317,19 @@ class CodeReviewService {
             while ((match = lineIssueRegex.exec(followUpAnalysis)) !== null) {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
-                if (issueComment) {
-                    // Check if line number is in change map
-                    let position = undefined;
-                    if (file.changeMap) {
-                        // Try to find the position of this line in the changes
-                        if (file.changeMap.additions.includes(lineNumber)) {
-                            // This is an added line, so it should be in the diff
-                            position = lineNumber;
-                        }
-                    }
+                if (issueComment && lineNumber > 0) {
+                    // Only include comments where we can determine the exact position
+                    // The exact position is the line number itself
                     comments.push({
                         path: file.filename,
                         line: lineNumber,
-                        position: position, // Add position if we can determine it
+                        position: lineNumber, // Use exact line number as position
                         body: issueComment,
                         confidence: 100
                     });
                 }
             }
-            // If no line-specific comments were found in follow-up, add it as a general comment
-            if (!lineIssueRegex.test(followUpAnalysis)) {
-                comments.push({
-                    path: file.filename,
-                    body: followUpAnalysis,
-                    confidence: 100
-                });
-            }
+            // We don't add general comments anymore
         }
         return comments;
     }
@@ -782,10 +755,12 @@ class GitHubService {
     async addReviewComments(prNumber, comments) {
         try {
             const { owner, repo } = this.context.repo;
-            // Filter comments based on confidence threshold
-            const filteredComments = comments.filter(comment => comment.confidence >= this.openaiService.getCommentThreshold());
+            // Filter comments based on confidence threshold AND valid position
+            const filteredComments = comments.filter(comment => comment.confidence >= this.openaiService.getCommentThreshold() &&
+                comment.position !== undefined &&
+                comment.position !== null);
             if (filteredComments.length === 0) {
-                core.info('No comments to add based on confidence threshold.');
+                core.info('No comments to add - no issues with valid positions were found.');
                 return;
             }
             // Prepare JSON output for code review results
@@ -793,7 +768,7 @@ class GitHubService {
                 comment: comment.body,
                 filePath: comment.path,
                 line: comment.line || null,
-                position: comment.position || null
+                position: comment.position
             }));
             // Set as GitHub Action output
             core.setOutput('review-results', JSON.stringify(jsonReviewResults));
@@ -822,49 +797,12 @@ class GitHubService {
             const reviewComments = [];
             for (const comment of filteredComments) {
                 try {
-                    let position;
-                    // If the comment already has a position from the AI, use it directly
-                    if (comment.position !== undefined) {
-                        position = comment.position;
-                    }
-                    // Otherwise, for line-specific comments, calculate the position in the diff
-                    else if (comment.line) {
-                        // First, get the file data to access the patch
-                        const fileData = await this.octokit.rest.pulls.listFiles({
-                            owner,
-                            repo,
-                            pull_number: prNumber
-                        }).then(response => response.data.find(file => file.filename === comment.path));
-                        if (fileData && fileData.patch) {
-                            position = this.calculatePositionFromLine(fileData.patch, comment.line);
-                        }
-                    }
-                    // If we have a valid position, add a comment at that position
-                    if (position !== undefined && position !== null) {
-                        reviewComments.push({
-                            path: comment.path,
-                            position: position,
-                            body: comment.body
-                        });
-                    }
-                    else if (this.isFileCommentable({ filename: comment.path })) {
-                        // If no valid position but file exists, add a file-level comment
-                        reviewComments.push({
-                            path: comment.path,
-                            position: this.getSpecialFilePosition({ filename: comment.path }),
-                            body: comment.body
-                        });
-                    }
-                    else {
-                        // Fall back to a general PR comment if we can't post a file comment
-                        core.warning(`Could not determine position for comment on ${comment.path}. Adding as general PR comment.`);
-                        await this.octokit.rest.issues.createComment({
-                            owner,
-                            repo,
-                            issue_number: prNumber,
-                            body: `**${comment.path}**: ${comment.body}`
-                        });
-                    }
+                    // All comments at this point should have a valid position
+                    reviewComments.push({
+                        path: comment.path,
+                        position: comment.position,
+                        body: comment.body
+                    });
                 }
                 catch (error) {
                     core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1019,7 +957,9 @@ class OpenAIService {
             }
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
+                'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+                'The line number must correspond precisely to the line in the diff where the issue exists. ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
@@ -1038,6 +978,8 @@ class OpenAIService {
             }
             userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
                 'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+                'ONLY include comments where you can identify the exact line number. ' +
+                'If you cannot determine the exact line, do not include that comment. ' +
                 'Ensure all issues have an exact line number reference. ' +
                 'Use feature sentences only - no explanations or reasoning.';
             core.debug(`Using model: ${this.model}`);
@@ -1066,7 +1008,9 @@ class OpenAIService {
     async analyzeWithGenericPrompt(file) {
         const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
             'Focus specifically on the changes in this pull request, not the entire file. ' +
+            'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
             'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+            'The line number must correspond precisely to the line in the diff where the issue exists. ' +
             'It\'s critical that you identify the precise line number where each issue occurs. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
             'Your review will be used to create GitHub comments at the specified positions. ' +
@@ -1086,6 +1030,8 @@ class OpenAIService {
         }
         userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
             'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+            'ONLY include comments where you can identify the exact line number. ' +
+            'If you cannot determine the exact line, do not include that comment. ' +
             'Ensure all issues have an exact line number reference. ' +
             'Use feature sentences only - no explanations or reasoning.';
         const response = await this.openai.chat.completions.create({
@@ -1112,7 +1058,9 @@ class OpenAIService {
             const matchingRule = this.findMatchingRule(file.filename);
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
+                'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+                'The line number must correspond precisely to the line in the diff where the issue exists. ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +

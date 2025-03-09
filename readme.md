@@ -159,9 +159,18 @@ This action creates individual GitHub code review comments directly on the relev
 - **Standard GitHub Flow**: Uses the same format as human code reviews
 - **Improved Collaboration**: Makes it easy to address and resolve specific feedback
 
-The AI review system is optimized to identify the precise line number for each issue it finds, allowing for targeted feedback on exactly the lines that need attention.
+### Precise Line Positioning
 
-For issues that span multiple lines or apply to an entire file, the action will place the comment at the most relevant line or as a file-level comment.
+The AI review system is optimized to identify and comment on exact line positions only. This means:
+
+- Comments are only created for issues where the exact line position can be determined
+- Each comment's position matches precisely to the line number where the issue occurs
+- General, file-level, or imprecise comments are filtered out
+- If a block of changes starts at line 16 but has an issue on line 17, the comment will be placed exactly on line 17
+
+This approach ensures all comments are precisely positioned in the code, making it easier to locate and fix issues.
+
+For issues that span multiple lines, the AI will choose the most relevant single line for the comment placement.
 
 ## Development
 

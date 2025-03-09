@@ -198,36 +198,21 @@ export class CodeReviewService {
         const lineNumber = parseInt(match[1], 10);
         const issueComment = match[2].trim();
         
-        if (issueComment) {
-          // Check if line number is in change map
-          let position = undefined;
-          
-          if (file.changeMap) {
-            // Try to find the position of this line in the changes
-            if (file.changeMap.additions.includes(lineNumber)) {
-              // This is an added line, so it should be in the diff
-              position = lineNumber;
-            }
-          }
-          
+        if (issueComment && lineNumber > 0) {
+          // Only include comments where we can determine the exact position
+          // The exact position is the line number itself
           comments.push({
             path: file.filename,
             line: lineNumber,
-            position: position, // Add position if we can determine it
+            position: lineNumber, // Use exact line number as position
             body: issueComment,
             confidence: 100
           });
         }
       }
       
-      // If no line-specific comments were found, add the entire initial analysis as a general comment
-      if (comments.length === 0) {
-        comments.push({
-          path: file.filename,
-          body: initialAnalysis,
-          confidence: 100
-        });
-      }
+      // We no longer add general comments if no line-specific ones are found
+      // This ensures we only have comments with positions
     }
     
     // Process follow-up analysis if it contains content
@@ -244,36 +229,20 @@ export class CodeReviewService {
         const lineNumber = parseInt(match[1], 10);
         const issueComment = match[2].trim();
         
-        if (issueComment) {
-          // Check if line number is in change map
-          let position = undefined;
-          
-          if (file.changeMap) {
-            // Try to find the position of this line in the changes
-            if (file.changeMap.additions.includes(lineNumber)) {
-              // This is an added line, so it should be in the diff
-              position = lineNumber;
-            }
-          }
-          
+        if (issueComment && lineNumber > 0) {
+          // Only include comments where we can determine the exact position
+          // The exact position is the line number itself
           comments.push({
             path: file.filename,
             line: lineNumber,
-            position: position, // Add position if we can determine it
+            position: lineNumber, // Use exact line number as position
             body: issueComment,
             confidence: 100
           });
         }
       }
       
-      // If no line-specific comments were found in follow-up, add it as a general comment
-      if (!lineIssueRegex.test(followUpAnalysis)) {
-        comments.push({
-          path: file.filename,
-          body: followUpAnalysis,
-          confidence: 100
-        });
-      }
+      // We don't add general comments anymore
     }
     
     return comments;

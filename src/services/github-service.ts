@@ -456,13 +456,15 @@ export class GitHubService {
     try {
       const { owner, repo } = this.context.repo;
       
-      // Filter comments based on confidence threshold
+      // Filter comments based on confidence threshold AND valid position
       const filteredComments = comments.filter(
-        comment => comment.confidence >= this.openaiService.getCommentThreshold()
+        comment => comment.confidence >= this.openaiService.getCommentThreshold() && 
+                   comment.position !== undefined && 
+                   comment.position !== null
       );
       
       if (filteredComments.length === 0) {
-        core.info('No comments to add based on confidence threshold.');
+        core.info('No comments to add - no issues with valid positions were found.');
         return;
       }
 
@@ -471,7 +473,7 @@ export class GitHubService {
         comment: comment.body,
         filePath: comment.path,
         line: comment.line || null,
-        position: comment.position || null
+        position: comment.position
       }));
       
       // Set as GitHub Action output
@@ -506,52 +508,12 @@ export class GitHubService {
       
       for (const comment of filteredComments) {
         try {
-          let position;
-          
-          // If the comment already has a position from the AI, use it directly
-          if (comment.position !== undefined) {
-            position = comment.position;
-          }
-          // Otherwise, for line-specific comments, calculate the position in the diff
-          else if (comment.line) {
-            // First, get the file data to access the patch
-            const fileData = await this.octokit.rest.pulls.listFiles({
-              owner,
-              repo,
-              pull_number: prNumber
-            }).then(response => 
-              response.data.find(file => file.filename === comment.path)
-            );
-            
-            if (fileData && fileData.patch) {
-              position = this.calculatePositionFromLine(fileData.patch, comment.line);
-            }
-          }
-          
-          // If we have a valid position, add a comment at that position
-          if (position !== undefined && position !== null) {
-            reviewComments.push({
-              path: comment.path,
-              position: position,
-              body: comment.body
-            });
-          } else if (this.isFileCommentable({ filename: comment.path } as PullRequestFile)) {
-            // If no valid position but file exists, add a file-level comment
-            reviewComments.push({
-              path: comment.path,
-              position: this.getSpecialFilePosition({ filename: comment.path } as PullRequestFile),
-              body: comment.body
-            });
-          } else {
-            // Fall back to a general PR comment if we can't post a file comment
-            core.warning(`Could not determine position for comment on ${comment.path}. Adding as general PR comment.`);
-            await this.octokit.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: prNumber,
-              body: `**${comment.path}**: ${comment.body}`
-            });
-          }
+          // All comments at this point should have a valid position
+          reviewComments.push({
+            path: comment.path,
+            position: comment.position,
+            body: comment.body
+          });
         } catch (error) {
           core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
         }
