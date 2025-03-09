@@ -206,7 +206,7 @@ export class CodeReviewService {
             comments.push({
               path: file.filename,
               line: lineNumber,
-              position: lineNumber, // Use exact line number as position
+              // Don't set position here - let GitHub service calculate it
               body: issueComment,
               confidence: 100
             });
@@ -215,9 +215,6 @@ export class CodeReviewService {
           }
         }
       }
-      
-      // We no longer add general comments if no line-specific ones are found
-      // This ensures we only have comments with positions
     }
     
     // Process follow-up analysis if it contains content
@@ -242,7 +239,7 @@ export class CodeReviewService {
             comments.push({
               path: file.filename,
               line: lineNumber,
-              position: lineNumber, // Use exact line number as position
+              // Don't set position here - let GitHub service calculate it
               body: issueComment,
               confidence: 100
             });
@@ -251,8 +248,6 @@ export class CodeReviewService {
           }
         }
       }
-      
-      // We don't add general comments anymore
     }
     
     return comments;

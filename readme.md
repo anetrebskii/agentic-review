@@ -168,8 +168,11 @@ The AI review system is optimized to identify and comment on exact line position
 - Each comment's position matches precisely to the line number where the issue occurs
 - Line structure is preserved in the review process, maintaining the original file format
 - Line numbers are explicitly included with the changed content for accurate reference
+- The action handles the conversion from file line numbers to GitHub's diff positions
 - General, file-level, or imprecise comments are filtered out
 - If a block of changes starts at line 16 but has an issue on line 17, the comment will be placed exactly on line 17
+
+> **Technical Note**: GitHub's API requires positions to be specified in terms of diff positions (the line count within the diff), not file line numbers. This action handles the conversion automatically by analyzing the diff patch and mapping file line numbers to their corresponding positions in the diff.
 
 This approach ensures all comments are precisely positioned in the code and relevant only to the changes being reviewed, making it easier to locate and fix issues in the current PR without being distracted by pre-existing issues.
 

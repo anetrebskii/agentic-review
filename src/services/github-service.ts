@@ -222,75 +222,94 @@ export class GitHubService {
     if (!patch) return undefined;
 
     // Handle empty files or very simple patches
-    if (patch.trim() === '') return 1;
+    if (patch.trim() === '') return undefined;
 
     const lines = patch.split('\n');
     let currentLineNumber = 0;
-    let positionInDiff = 0;
-    let foundHunk = false;
-    let lastHunkPosition = 0;
+    let diffPosition = 1; // GitHub positions start at 1 for the first line in the diff
 
-    // First, check if this is a new file with only additions
-    const isNewFile = lines.some(line => line.startsWith('new file mode'));
-    if (isNewFile) {
-      // For new files, we can often use the line number directly
-      // Find the appropriate hunk that contains our line
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('@@')) {
-          const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-          if (match && match[1]) {
-            const hunkStart = parseInt(match[1], 10);
-            // If our target line is in this hunk's range, calculate its position
-            if (lineNumber >= hunkStart) {
-              // lineNumber - hunkStart + hunkHeader position + 1
-              const headerPosition = i + 1; // Position of the line after the hunk header
-              return headerPosition + (lineNumber - hunkStart);
-            }
-          }
-        }
-      }
-    }
-
-    // Standard diff position calculation for modified files
+    // Process each line in the patch
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      // Handle hunk headers
+      // Process hunk headers
       if (line.startsWith('@@')) {
-        foundHunk = true;
-        lastHunkPosition = i;
         // Parse the hunk header to get starting line numbers
         // Format: @@ -oldStart,oldLines +newStart,newLines @@
         const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
         if (match && match[1]) {
-          currentLineNumber = parseInt(match[1], 10); // Line numbers in patches are 1-indexed
+          currentLineNumber = parseInt(match[1], 10); // New file's line number
         }
-      } 
+        diffPosition++; // Increment position for the hunk header line
+        continue;
+      }
       
-      if (foundHunk) {
-        positionInDiff = i - lastHunkPosition; // Position relative to current hunk
-        
-        // Skip deletion lines as they don't affect file line numbers
-        if (!line.startsWith('-') || line.startsWith('---')) {
-          // If it's an addition or context line, it exists in the new file
-          if ((line.startsWith('+') && !line.startsWith('+++')) || 
-              (!line.startsWith('+') && !line.startsWith('-') && !line.startsWith('@@'))) {
-            // If this is the line we're looking for, return the position
-            if (currentLineNumber === lineNumber) {
-              return positionInDiff;
-            }
-            currentLineNumber++;
-          }
+      // Skip file metadata lines
+      if (line.startsWith('+++') || line.startsWith('---')) {
+        diffPosition++;
+        continue;
+      }
+      
+      // Process content lines
+      if (line.startsWith('+')) {
+        // Added line in new file
+        if (currentLineNumber === lineNumber) {
+          // This is the line we're looking for!
+          core.info(`Found exact match for line ${lineNumber} at diff position ${diffPosition}`);
+          return diffPosition;
         }
+        currentLineNumber++;
+        diffPosition++;
+      } else if (line.startsWith('-')) {
+        // Deleted line from old file - just increment diff position
+        diffPosition++;
+      } else {
+        // Context line - exists in both old and new
+        if (currentLineNumber === lineNumber) {
+          // This is the line we're looking for!
+          core.info(`Found exact match for line ${lineNumber} at diff position ${diffPosition}`);
+          return diffPosition;
+        }
+        currentLineNumber++;
+        diffPosition++;
       }
     }
 
-    // If we can't determine position precisely, as a last resort for non-empty patches:
-    // Fall back to the first position in the last hunk
-    if (foundHunk) {
-      core.warning(`Couldn't find exact position for line ${lineNumber}, falling back to approximate position`);
-      return 1; // Default to position 1 (right after the first hunk header)
+    // If we can't find an exact match, try to find the closest hunk
+    // and return a position within that hunk
+    currentLineNumber = 0;
+    diffPosition = 1;
+    let lastHunkStart = 0;
+    let lastHunkPosition = 0;
+    let bestHunkStart = 0;
+    let bestHunkPosition = 0;
+    let bestDistanceToLine = Number.MAX_SAFE_INTEGER;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      if (line.startsWith('@@')) {
+        const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if (match && match[1]) {
+          lastHunkStart = parseInt(match[1], 10);
+          lastHunkPosition = diffPosition;
+          
+          // Check if this hunk is closer to our target line
+          const distance = Math.abs(lastHunkStart - lineNumber);
+          if (distance < bestDistanceToLine) {
+            bestDistanceToLine = distance;
+            bestHunkStart = lastHunkStart;
+            bestHunkPosition = lastHunkPosition;
+          }
+        }
+      }
+      diffPosition++;
+    }
+    
+    if (bestHunkPosition > 0) {
+      // Return the best matching hunk position + 1 (to get into the content)
+      core.warning(`Couldn't find exact position for line ${lineNumber}, using nearest hunk at position ${bestHunkPosition + 1}`);
+      return bestHunkPosition + 1;
     }
 
     // Line was not found in the diff
@@ -477,11 +496,9 @@ export class GitHubService {
     try {
       const { owner, repo } = this.context.repo;
       
-      // Filter comments based on confidence threshold AND valid position
+      // Filter comments based on confidence threshold
       const filteredComments = comments.filter(
-        comment => comment.confidence >= this.openaiService.getCommentThreshold() && 
-                   comment.position !== undefined && 
-                   comment.position !== null
+        comment => comment.confidence >= this.openaiService.getCommentThreshold()
       );
       
       if (filteredComments.length === 0) {
@@ -489,17 +506,66 @@ export class GitHubService {
         return;
       }
 
+      // First, get all the file data to have the patches available
+      const fileDataMap = new Map();
+      const filesResponse = await this.octokit.rest.pulls.listFiles({
+        owner,
+        repo,
+        pull_number: prNumber
+      });
+      
+      for (const fileData of filesResponse.data) {
+        fileDataMap.set(fileData.filename, fileData);
+      }
+
+      // Process comments to add position information
+      const processedComments = [];
+      
+      for (const comment of filteredComments) {
+        try {
+          const fileData = fileDataMap.get(comment.path);
+          
+          if (!fileData || !fileData.patch) {
+            core.warning(`Could not find patch data for ${comment.path}. Skipping comment.`);
+            continue;
+          }
+          
+          if (!comment.line) {
+            core.warning(`Comment on ${comment.path} has no line number. Skipping.`);
+            continue;
+          }
+          
+          // Calculate position in the diff
+          const position = this.calculatePositionFromLine(fileData.patch, comment.line);
+          
+          if (position === undefined) {
+            core.warning(`Could not determine position for line ${comment.line} in ${comment.path}. Skipping comment.`);
+            continue;
+          }
+          
+          processedComments.push({
+            ...comment,
+            position
+          });
+        } catch (error) {
+          core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
       // Prepare JSON output for code review results
-      const jsonReviewResults = filteredComments.map(comment => ({
+      const jsonReviewResults = processedComments.map(comment => ({
         comment: comment.body,
         filePath: comment.path,
         line: comment.line || null,
-        position: comment.position
+        position: comment.position || null
       }));
       
       // Set as GitHub Action output
       core.setOutput('review-results', JSON.stringify(jsonReviewResults));
       core.info('Review results set as action output "review-results"');
+      
+      // Log the processed comments for debugging
+      core.info(`Processed comments with calculated positions: ${JSON.stringify(processedComments, null, 2)}`);
       
       // Write JSON results to a file in the repo (if we have write access)
       try {
@@ -527,14 +593,17 @@ export class GitHubService {
       // Start a new review
       const reviewComments = [];
       
-      for (const comment of filteredComments) {
+      for (const comment of processedComments) {
         try {
-          // All comments at this point should have a valid position
-          reviewComments.push({
-            path: comment.path,
-            position: comment.position,
-            body: comment.body
-          });
+          if (comment.position !== undefined && comment.position !== null) {
+            reviewComments.push({
+              path: comment.path,
+              position: comment.position,
+              body: comment.body
+            });
+          } else {
+            core.warning(`Skipping comment for ${comment.path} with invalid position`);
+          }
         } catch (error) {
           core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -542,6 +611,9 @@ export class GitHubService {
       
       // Submit the review with all the collected comments
       if (reviewComments.length > 0) {
+        core.info(`Submitting review with ${reviewComments.length} comments...`);
+        core.debug(`Review comments: ${JSON.stringify(reviewComments, null, 2)}`);
+        
         await this.octokit.rest.pulls.createReview({
           owner,
           repo,
@@ -549,7 +621,10 @@ export class GitHubService {
           comments: reviewComments,
           event: 'COMMENT' // Could be 'APPROVE' or 'REQUEST_CHANGES' based on severity
         });
+        
         core.info(`Added ${reviewComments.length} individual review comments to PR #${prNumber}`);
+      } else {
+        core.warning('No valid comments with positions to submit');
       }
       
     } catch (error) {
