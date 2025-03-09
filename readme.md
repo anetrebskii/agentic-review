@@ -24,6 +24,10 @@ on:
 jobs:
   code-review:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -118,7 +122,6 @@ Alternatively, use the provided setup script:
 chmod +x setup.sh
 ./setup.sh
 ```
-
 ### Building for Distribution
 
 The project uses @vercel/ncc to bundle all dependencies into a single file. This is important because GitHub Actions don't install dependencies when they run in another repository.
@@ -164,3 +167,25 @@ act pull_request -s OPENAI_API_KEY=your-api-key
 ## License
 
 MIT
+
+## Troubleshooting
+
+### Error: "Cannot read properties of undefined (reading 'create')"
+
+This error occurs when the GitHub token doesn't have the necessary permissions to create check runs. When using this action in a workflow, you need to explicitly set the required permissions in your workflow file:
+
+```yaml
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+    steps:
+      # ... your steps
+```
+
+The `checks: write` permission is essential for the action to create and update check runs. Without this permission, you'll encounter the "Cannot read properties of undefined (reading 'create')" error.
+
+If you're using a custom GitHub token, make sure it has the necessary permissions to create check runs and comment on pull requests.

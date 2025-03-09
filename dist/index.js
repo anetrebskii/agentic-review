@@ -522,7 +522,7 @@ class GitHubService {
     async createInProgressCheckRun() {
         try {
             const { owner, repo } = this.context.repo;
-            const response = await this.octokit.checks.create({
+            const response = await this.octokit.rest.checks.create({
                 owner,
                 repo,
                 name: 'AI Code Review',
