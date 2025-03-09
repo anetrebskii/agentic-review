@@ -768,16 +768,6 @@ class GitHubService {
                 core.info('No comments to add based on confidence threshold.');
                 return;
             }
-            // Consolidate all comments into one single PR comment
-            let combinedBody = '# AI Code Review Summary\n\n';
-            // Group comments by file for better organization
-            const commentsByFile = {};
-            filteredComments.forEach(comment => {
-                if (!commentsByFile[comment.path]) {
-                    commentsByFile[comment.path] = [];
-                }
-                commentsByFile[comment.path].push(comment);
-            });
             // Prepare JSON output for code review results
             const jsonReviewResults = filteredComments.map(comment => ({
                 comment: comment.body,
@@ -801,38 +791,74 @@ class GitHubService {
                 // Write JSON file
                 fs.writeFileSync(jsonFilePath, JSON.stringify(jsonReviewResults, null, 2));
                 core.info(`Review results saved as JSON to ${jsonFilePath}`);
-                // Add information about the JSON file to the PR comment
-                combinedBody += `Review results are also available as [JSON](${jsonFilePath}).\n\n`;
             }
             catch (error) {
                 core.warning(`Error writing JSON results file: ${error instanceof Error ? error.message : String(error)}`);
-                core.warning('Continuing with PR comment only.');
+                core.warning('Continuing with PR comments only.');
             }
-            // Add file-specific comments to the combined body
-            Object.entries(commentsByFile).forEach(([filename, fileComments]) => {
-                combinedBody += `## File: ${filename}\n\n`;
-                fileComments.forEach(comment => {
-                    // Include line number information if available
+            // Create individual review comments for each issue
+            // Start a new review
+            const reviewComments = [];
+            for (const comment of filteredComments) {
+                try {
+                    let position;
+                    // For line-specific comments, calculate the position in the diff
                     if (comment.line) {
-                        combinedBody += `**Line ${comment.line}**: ${comment.body}\n\n`;
+                        // First, get the file data to access the patch
+                        const fileData = await this.octokit.rest.pulls.listFiles({
+                            owner,
+                            repo,
+                            pull_number: prNumber
+                        }).then(response => response.data.find(file => file.filename === comment.path));
+                        if (fileData && fileData.patch) {
+                            position = this.calculatePositionFromLine(fileData.patch, comment.line);
+                        }
+                    }
+                    // If we have a valid position, add a comment at that position
+                    if (position !== undefined) {
+                        reviewComments.push({
+                            path: comment.path,
+                            position: position,
+                            body: comment.body
+                        });
+                    }
+                    else if (this.isFileCommentable({ filename: comment.path })) {
+                        // If no valid position but file exists, add a file-level comment
+                        reviewComments.push({
+                            path: comment.path,
+                            position: this.getSpecialFilePosition({ filename: comment.path }),
+                            body: comment.body
+                        });
                     }
                     else {
-                        combinedBody += `${comment.body}\n\n`;
+                        // Fall back to a general PR comment if we can't post a file comment
+                        core.warning(`Could not determine position for comment on ${comment.path}. Adding as general PR comment.`);
+                        await this.octokit.rest.issues.createComment({
+                            owner,
+                            repo,
+                            issue_number: prNumber,
+                            body: `**${comment.path}**: ${comment.body}`
+                        });
                     }
+                }
+                catch (error) {
+                    core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+            // Submit the review with all the collected comments
+            if (reviewComments.length > 0) {
+                await this.octokit.rest.pulls.createReview({
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                    comments: reviewComments,
+                    event: 'COMMENT' // Could be 'APPROVE' or 'REQUEST_CHANGES' based on severity
                 });
-            });
-            // Create a single issue comment instead of a review with multiple comments
-            await this.octokit.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: prNumber,
-                body: combinedBody
-            });
-            core.info(`Added a single combined review comment to PR #${prNumber} with feedback for ${Object.keys(commentsByFile).length} files`);
-            core.info(`Total review comments: ${filteredComments.length}`);
+                core.info(`Added ${reviewComments.length} individual review comments to PR #${prNumber}`);
+            }
         }
         catch (error) {
-            core.error(`Error adding review comment: ${error instanceof Error ? error.message : String(error)}`);
+            core.error(`Error adding review comments: ${error instanceof Error ? error.message : String(error)}`);
             throw error;
         }
     }
@@ -968,7 +994,8 @@ class OpenAIService {
             }
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
-                'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+                'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+                'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Provide only very concise feedback with one issue per line reference. ' +
                 'Be extremely brief but precise in your feedback. ' +
@@ -1012,7 +1039,8 @@ class OpenAIService {
     async analyzeWithGenericPrompt(file) {
         const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
             'Focus specifically on the changes in this pull request, not the entire file. ' +
-            'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+            'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+            'It\'s critical that you identify the precise line number where each issue occurs. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
             'Provide only very concise feedback with one issue per line reference. ' +
             'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
@@ -1055,7 +1083,8 @@ class OpenAIService {
             const matchingRule = this.findMatchingRule(file.filename);
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
-                'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+                'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+                'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Provide only very concise feedback with one feature sentence per issue. ' +
                 'Be extremely brief but precise in your feedback.';

@@ -6,11 +6,12 @@ A GitHub Action for AI-assisted code reviews using ChatGPT or other AI models. T
 
 - **ChatGPT Integration**: Use ChatGPT to review your code through the OpenAI API
 - **Focus on Changes**: Reviews only the changed code in PRs while providing full file context for better analysis
+- **Line-Specific Comments**: Creates individual review comments directly on the relevant code lines
 - **JSON Output Format**: Creates structured JSON with comments, file paths, and line numbers for programmatic processing
 - **GitHub Action Output**: Provides review results as action output for further workflow automation
 - **Configurable Settings**: Customize file filters and review prompts via configuration file
 - **Agentic Review Mode**: AI makes multiple calls to thoroughly assess the code
-- **Pull Request Integration**: Updates PR status and adds review comments automatically
+- **Pull Request Integration**: Adds inline code review comments and updates PR status automatically
 
 ## Usage
 
@@ -145,6 +146,19 @@ steps:
 ### JSON Result File
 
 In addition to the action output, the review results are saved as a JSON file in the `.github/code-review-results/` directory when the action has sufficient permissions to write to the repository. This file is named with the pattern `review-{PR_NUMBER}-{TIMESTAMP}.json`.
+
+## Line-Specific Review Comments
+
+This action creates individual GitHub code review comments directly on the relevant lines of code rather than a single consolidated comment. This approach offers several advantages:
+
+- **Contextual Feedback**: Comments appear directly alongside the code they reference
+- **Easier Navigation**: Jump directly to specific issues in the codebase
+- **Standard GitHub Flow**: Uses the same format as human code reviews
+- **Improved Collaboration**: Makes it easy to address and resolve specific feedback
+
+The AI review system is optimized to identify the precise line number for each issue it finds, allowing for targeted feedback on exactly the lines that need attention.
+
+For issues that span multiple lines or apply to an entire file, the action will place the comment at the most relevant line or as a file-level comment.
 
 ## Development
 

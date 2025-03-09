@@ -98,7 +98,8 @@ export class OpenAIService {
 
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
-        'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+        'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+        'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Provide only very concise feedback with one issue per line reference. ' +
         'Be extremely brief but precise in your feedback. ' +
@@ -149,7 +150,8 @@ export class OpenAIService {
   private async analyzeWithGenericPrompt(file: EnhancedPRFile): Promise<string> {
     const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
       'Focus specifically on the changes in this pull request, not the entire file. ' +
-      'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+      'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+      'It\'s critical that you identify the precise line number where each issue occurs. ' +
       'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
       'Provide only very concise feedback with one issue per line reference. ' +
       'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
@@ -204,7 +206,8 @@ export class OpenAIService {
       
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
-        'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+        'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
+        'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Provide only very concise feedback with one feature sentence per issue. ' +
         'Be extremely brief but precise in your feedback.';
