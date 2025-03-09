@@ -102,6 +102,8 @@ export class OpenAIService {
         'Only provide feedback for issues where you can identify the EXACT line number. ' +
         'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
         'The line number must correspond precisely to the line in the diff where the issue exists. ' +
+        'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
+        'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' + 
         'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Only comment on lines that have been added or modified in this PR. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
@@ -126,6 +128,7 @@ export class OpenAIService {
       userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
         'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
         'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
+        'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
         'ONLY include comments where you can identify the exact line number. ' +
         'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
         'Ensure all issues have an exact line number reference. ' +
@@ -163,6 +166,8 @@ export class OpenAIService {
       'Only provide feedback for issues where you can identify the EXACT line number. ' +
       'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
       'The line number must correspond precisely to the line in the diff where the issue exists. ' +
+      'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
+      'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' + 
       'It\'s critical that you identify the precise line number where each issue occurs. ' +
       'Only comment on lines that have been added or modified in this PR. ' +
       'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
@@ -188,6 +193,7 @@ export class OpenAIService {
     userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
       'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
       'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
+      'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
       'ONLY include comments where you can identify the exact line number. ' +
       'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
       'Ensure all issues have an exact line number reference. ' +
@@ -228,6 +234,8 @@ export class OpenAIService {
         'Only provide feedback for issues where you can identify the EXACT line number. ' +
         'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
         'The line number must correspond precisely to the line in the diff where the issue exists. ' +
+        'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
+        'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' + 
         'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Only comment on lines that have been added or modified in this PR. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +

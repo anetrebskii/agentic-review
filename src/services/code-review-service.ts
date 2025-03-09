@@ -273,29 +273,42 @@ export class CodeReviewService {
     // If we don't have a change map, but have patch data, we can try to infer
     // from the patch if this line was part of the changes
     if (file.patch) {
-      // Simple check: see if the line number appears in a hunk header
-      // This is an approximation, but it's better than nothing
-      const hunkRegex = new RegExp(`@@ -\\d+,\\d+ \\+(\\d+),\\d+ @@`);
-      const hunkMatches = file.patch.matchAll(hunkRegex);
+      // Look for hunk headers in the patch
+      const hunkHeaderRegex = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/g;
+      let match;
+      let isInChangedLines = false;
       
-      for (const hunkMatch of Array.from(hunkMatches)) {
-        const hunkStart = parseInt(hunkMatch[1], 10);
-        // Extract the number of lines in this hunk 
-        const hunkInfo = hunkMatch[0].match(/@@ -\d+,\d+ \+\d+,(\d+) @@/);
-        const hunkLines = hunkInfo ? parseInt(hunkInfo[1], 10) : 0;
+      // Check each hunk to see if our line number is in the range
+      while ((match = hunkHeaderRegex.exec(file.patch)) !== null) {
+        const hunkStart = parseInt(match[1], 10);
+        // Find where the hunk ends by looking for the next hunk or end of patch
+        const hunkText = file.patch.substring(match.index);
+        const nextHunkIndex = hunkText.substring(match[0].length).search(/@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/);
+        const hunkEnd = nextHunkIndex !== -1 
+          ? match.index + match[0].length + nextHunkIndex 
+          : file.patch.length;
+        const hunkContent = file.patch.substring(match.index, hunkEnd);
         
-        // Check if the line is within this hunk's range
-        if (lineNumber >= hunkStart && lineNumber < hunkStart + hunkLines) {
-          return true;
+        // Count the number of added lines in this hunk to determine the range
+        const addedLines = hunkContent.split('\n')
+          .filter(line => line.startsWith('+') && !line.startsWith('+++'))
+          .length;
+        
+        // Check if our line number falls within this hunk's range
+        if (lineNumber >= hunkStart && lineNumber < hunkStart + addedLines) {
+          isInChangedLines = true;
+          break;
         }
       }
+      
+      return isInChangedLines;
     }
     
-    // If we have changedContent, we can try to infer from the content
+    // If we have changedContent in our new format, check for line number markers
     if (file.changedContent) {
-      // This is an approximation - check if the line number appears in the changed content
-      // Only works accurately if the changed content includes line numbers
-      return file.changedContent.includes(`${lineNumber}:`);
+      // Our new format includes line numbers like "42: code line here"
+      const lineMarker = new RegExp(`^${lineNumber}:\\s`, 'm');
+      return lineMarker.test(file.changedContent);
     }
     
     // By default, assume the line was changed if we can't determine otherwise

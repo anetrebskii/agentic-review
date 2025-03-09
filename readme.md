@@ -166,6 +166,8 @@ The AI review system is optimized to identify and comment on exact line position
 - Comments are only created for issues in lines that have been added or modified in the PR
 - The system ignores issues in unchanged code, focusing solely on what's being modified
 - Each comment's position matches precisely to the line number where the issue occurs
+- Line structure is preserved in the review process, maintaining the original file format
+- Line numbers are explicitly included with the changed content for accurate reference
 - General, file-level, or imprecise comments are filtered out
 - If a block of changes starts at line 16 but has an issue on line 17, the comment will be placed exactly on line 17
 

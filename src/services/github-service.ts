@@ -151,42 +151,63 @@ export class GitHubService {
       deletions: [] as number[]
     };
 
-    // Extract only the added/changed lines (starting with +)
-    // Remove the first line which is just the file path info and hunk headers
-    const changedLines = patch
-      .split('\n')
-      .filter(line => {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          // This is an added line, extract the line number if possible
-          const match = line.match(/^.*@@ -\d+,\d+ \+(\d+),\d+ @@/);
-          if (match && match[1]) {
-            changeMap.additions.push(parseInt(match[1], 10));
+    // Parse the patch to extract hunk information
+    const hunks: { startLine: number; content: string[] }[] = [];
+    let currentHunk: { startLine: number; content: string[] } | null = null;
+    let currentLineNumber = 0;
+
+    const patchLines = patch.split('\n');
+    
+    for (let i = 0; i < patchLines.length; i++) {
+      const line = patchLines[i];
+      
+      if (line.startsWith('@@')) {
+        // Parse the hunk header: @@ -origStart,origLines +newStart,newLines @@
+        const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if (match && match[1]) {
+          // Start a new hunk
+          currentLineNumber = parseInt(match[1], 10);
+          
+          if (currentHunk) {
+            hunks.push(currentHunk);
           }
-          return true;
+          
+          currentHunk = {
+            startLine: currentLineNumber,
+            content: [line] // Include the hunk header
+          };
+        }
+      } else if (currentHunk) {
+        // Handle content lines
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          // This is an added/modified line
+          changeMap.additions.push(currentLineNumber);
+          // Store the line without the leading + but with the line number
+          currentHunk.content.push(`${currentLineNumber}: ${line.substring(1)}`);
+          currentLineNumber++;
         } else if (line.startsWith('-') && !line.startsWith('---')) {
-          // This is a deleted line, extract the line number if possible
-          const match = line.match(/^.*@@ -(\d+),\d+ \+\d+,\d+ @@/);
-          if (match && match[1]) {
-            changeMap.deletions.push(parseInt(match[1], 10));
-          }
-          return false; // Don't include deletions in the content
-        } else if (line.startsWith('@@')) {
-          // This is a hunk header, keep it for context
-          return true;
+          // This is a deleted line - track it but don't include in content
+          changeMap.deletions.push(currentLineNumber);
+        } else if (!line.startsWith('---') && !line.startsWith('+++')) {
+          // This is a context line (not added or deleted)
+          // We still increment the line number but don't include it in the content
+          currentLineNumber++;
         }
-        return false; // Skip other lines (context lines)
-      })
-      .map(line => {
-        // Remove the leading + from added lines
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          return line.substring(1);
-        }
-        return line;
-      })
-      .join('\n');
+      }
+    }
+    
+    // Add the last hunk if it exists
+    if (currentHunk) {
+      hunks.push(currentHunk);
+    }
+    
+    // Combine all hunks into the final changed content, preserving line structure
+    const changedContent = hunks.map(hunk => {
+      return `@@ Starting at line ${hunk.startLine} @@\n${hunk.content.slice(1).join('\n')}`;
+    }).join('\n\n');
 
     return { 
-      changedContent: changedLines,
+      changedContent,
       changeMap
     };
   }

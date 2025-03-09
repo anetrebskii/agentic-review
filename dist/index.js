@@ -357,26 +357,37 @@ class CodeReviewService {
         // If we don't have a change map, but have patch data, we can try to infer
         // from the patch if this line was part of the changes
         if (file.patch) {
-            // Simple check: see if the line number appears in a hunk header
-            // This is an approximation, but it's better than nothing
-            const hunkRegex = new RegExp(`@@ -\\d+,\\d+ \\+(\\d+),\\d+ @@`);
-            const hunkMatches = file.patch.matchAll(hunkRegex);
-            for (const hunkMatch of Array.from(hunkMatches)) {
-                const hunkStart = parseInt(hunkMatch[1], 10);
-                // Extract the number of lines in this hunk 
-                const hunkInfo = hunkMatch[0].match(/@@ -\d+,\d+ \+\d+,(\d+) @@/);
-                const hunkLines = hunkInfo ? parseInt(hunkInfo[1], 10) : 0;
-                // Check if the line is within this hunk's range
-                if (lineNumber >= hunkStart && lineNumber < hunkStart + hunkLines) {
-                    return true;
+            // Look for hunk headers in the patch
+            const hunkHeaderRegex = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/g;
+            let match;
+            let isInChangedLines = false;
+            // Check each hunk to see if our line number is in the range
+            while ((match = hunkHeaderRegex.exec(file.patch)) !== null) {
+                const hunkStart = parseInt(match[1], 10);
+                // Find where the hunk ends by looking for the next hunk or end of patch
+                const hunkText = file.patch.substring(match.index);
+                const nextHunkIndex = hunkText.substring(match[0].length).search(/@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/);
+                const hunkEnd = nextHunkIndex !== -1
+                    ? match.index + match[0].length + nextHunkIndex
+                    : file.patch.length;
+                const hunkContent = file.patch.substring(match.index, hunkEnd);
+                // Count the number of added lines in this hunk to determine the range
+                const addedLines = hunkContent.split('\n')
+                    .filter(line => line.startsWith('+') && !line.startsWith('+++'))
+                    .length;
+                // Check if our line number falls within this hunk's range
+                if (lineNumber >= hunkStart && lineNumber < hunkStart + addedLines) {
+                    isInChangedLines = true;
+                    break;
                 }
             }
+            return isInChangedLines;
         }
-        // If we have changedContent, we can try to infer from the content
+        // If we have changedContent in our new format, check for line number markers
         if (file.changedContent) {
-            // This is an approximation - check if the line number appears in the changed content
-            // Only works accurately if the changed content includes line numbers
-            return file.changedContent.includes(`${lineNumber}:`);
+            // Our new format includes line numbers like "42: code line here"
+            const lineMarker = new RegExp(`^${lineNumber}:\\s`, 'm');
+            return lineMarker.test(file.changedContent);
         }
         // By default, assume the line was changed if we can't determine otherwise
         // This is conservative but ensures we don't miss important comments
@@ -527,43 +538,58 @@ class GitHubService {
             additions: [],
             deletions: []
         };
-        // Extract only the added/changed lines (starting with +)
-        // Remove the first line which is just the file path info and hunk headers
-        const changedLines = patch
-            .split('\n')
-            .filter(line => {
-            if (line.startsWith('+') && !line.startsWith('+++')) {
-                // This is an added line, extract the line number if possible
-                const match = line.match(/^.*@@ -\d+,\d+ \+(\d+),\d+ @@/);
+        // Parse the patch to extract hunk information
+        const hunks = [];
+        let currentHunk = null;
+        let currentLineNumber = 0;
+        const patchLines = patch.split('\n');
+        for (let i = 0; i < patchLines.length; i++) {
+            const line = patchLines[i];
+            if (line.startsWith('@@')) {
+                // Parse the hunk header: @@ -origStart,origLines +newStart,newLines @@
+                const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
                 if (match && match[1]) {
-                    changeMap.additions.push(parseInt(match[1], 10));
+                    // Start a new hunk
+                    currentLineNumber = parseInt(match[1], 10);
+                    if (currentHunk) {
+                        hunks.push(currentHunk);
+                    }
+                    currentHunk = {
+                        startLine: currentLineNumber,
+                        content: [line] // Include the hunk header
+                    };
                 }
-                return true;
             }
-            else if (line.startsWith('-') && !line.startsWith('---')) {
-                // This is a deleted line, extract the line number if possible
-                const match = line.match(/^.*@@ -(\d+),\d+ \+\d+,\d+ @@/);
-                if (match && match[1]) {
-                    changeMap.deletions.push(parseInt(match[1], 10));
+            else if (currentHunk) {
+                // Handle content lines
+                if (line.startsWith('+') && !line.startsWith('+++')) {
+                    // This is an added/modified line
+                    changeMap.additions.push(currentLineNumber);
+                    // Store the line without the leading + but with the line number
+                    currentHunk.content.push(`${currentLineNumber}: ${line.substring(1)}`);
+                    currentLineNumber++;
                 }
-                return false; // Don't include deletions in the content
+                else if (line.startsWith('-') && !line.startsWith('---')) {
+                    // This is a deleted line - track it but don't include in content
+                    changeMap.deletions.push(currentLineNumber);
+                }
+                else if (!line.startsWith('---') && !line.startsWith('+++')) {
+                    // This is a context line (not added or deleted)
+                    // We still increment the line number but don't include it in the content
+                    currentLineNumber++;
+                }
             }
-            else if (line.startsWith('@@')) {
-                // This is a hunk header, keep it for context
-                return true;
-            }
-            return false; // Skip other lines (context lines)
-        })
-            .map(line => {
-            // Remove the leading + from added lines
-            if (line.startsWith('+') && !line.startsWith('+++')) {
-                return line.substring(1);
-            }
-            return line;
-        })
-            .join('\n');
+        }
+        // Add the last hunk if it exists
+        if (currentHunk) {
+            hunks.push(currentHunk);
+        }
+        // Combine all hunks into the final changed content, preserving line structure
+        const changedContent = hunks.map(hunk => {
+            return `@@ Starting at line ${hunk.startLine} @@\n${hunk.content.slice(1).join('\n')}`;
+        }).join('\n\n');
         return {
-            changedContent: changedLines,
+            changedContent,
             changeMap
         };
     }
@@ -1010,6 +1036,8 @@ class OpenAIService {
                 'Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
                 'The line number must correspond precisely to the line in the diff where the issue exists. ' +
+                'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
+                'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
@@ -1030,6 +1058,7 @@ class OpenAIService {
             userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
                 'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
                 'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
+                'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
                 'ONLY include comments where you can identify the exact line number. ' +
                 'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
                 'Ensure all issues have an exact line number reference. ' +
@@ -1064,6 +1093,8 @@ class OpenAIService {
             'Only provide feedback for issues where you can identify the EXACT line number. ' +
             'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
             'The line number must correspond precisely to the line in the diff where the issue exists. ' +
+            'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
+            'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' +
             'It\'s critical that you identify the precise line number where each issue occurs. ' +
             'Only comment on lines that have been added or modified in this PR. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
@@ -1085,6 +1116,7 @@ class OpenAIService {
         userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
             'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
             'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
+            'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
             'ONLY include comments where you can identify the exact line number. ' +
             'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
             'Ensure all issues have an exact line number reference. ' +
@@ -1117,6 +1149,8 @@ class OpenAIService {
                 'Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
                 'The line number must correspond precisely to the line in the diff where the issue exists. ' +
+                'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
+                'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
