@@ -180,7 +180,7 @@ class CodeReviewService {
             // Get changed files with context
             const changedFiles = await this.githubService.getChangedFiles(prNumber);
             core.info(`Found ${changedFiles.length} changed files to review.`);
-            core.debug(`Changed files: ${JSON.stringify(changedFiles, null, 2)}`);
+            core.info(`Changed files: ${JSON.stringify(changedFiles, null, 2)}`);
             if (changedFiles.length === 0) {
                 await this.githubService.completeCheckRun(checkRunId, 'success', 'No files to review based on configuration filters.');
                 return;
