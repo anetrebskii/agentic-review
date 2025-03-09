@@ -1,46 +1,67 @@
 # AI Code Review Configuration
 
-# Files to include in the review (glob patterns)
-includeFiles:
-  - '**/*.ts'
-  - '**/*.js'
-  - '**/*.tsx'
-  - '**/*.jsx'
-  - '**/*.py'
-  - '**/*.go'
-  - '**/*.java'
-  - '**/*.rb'
-
-# Files to exclude from the review (glob patterns)
+# Global excludes - These files will always be excluded
 excludeFiles:
   - '**/node_modules/**'
   - '**/dist/**'
   - '**/build/**'
-  - '**/*.test.ts'
-  - '**/*.spec.ts'
   - '**/*.min.js'
 
-# AI prompt rules
-promptRules:
-  # System prompt for the AI
-  systemPrompt: >
-    You are an expert code reviewer with extensive experience in software development.
-    Analyze the code changes and provide constructive feedback.
-    Focus on code quality, potential bugs, security issues, performance concerns, and best practices.
-    Be specific and actionable in your feedback, explaining why a change is recommended.
-    For each issue, rate its severity (low, medium, high) and provide a suggested fix if possible.
+# Review rules - Each rule specifies what files to include and what to look for
+rules:
+  - include:
+      - '**/*.ts'
+      - '**/*.tsx'
+    prompt: >
+      Review this TypeScript code focusing on type safety, proper interface usage, 
+      and adherence to TypeScript best practices. Look for potential null/undefined issues, 
+      incorrect typing, and opportunities to improve type definitions.
 
-  # User prompt template for the AI (will be filled with code content)
-  userPrompt: >
-    Please review the following code changes:
+  - include:
+      - '**/*.js'
+      - '**/*.jsx'
+    prompt: >
+      Review this JavaScript code focusing on potential runtime errors, variable scope issues,
+      and modern JavaScript practices. Check for proper error handling, async/await usage,
+      and potential memory leaks.
 
-    {code}
+  - include:
+      - '**/*.py'
+    prompt: >
+      Review this Python code focusing on PEP 8 compliance, proper exception handling,
+      and Pythonic approaches. Check for inefficient algorithms, unnecessary complexity,
+      and security vulnerabilities like SQL injection or unsafe eval.
 
-    Please provide specific, actionable feedback with reasoning.
-    For each issue, include a severity rating and a suggested fix if possible.
+  - include:
+      - '**/*.go'
+    prompt: >
+      Review this Go code focusing on concurrency patterns, error handling, and idiomatic Go.
+      Look for proper resource management, potential race conditions, and inefficient memory usage.
 
-# Model configuration
-model: 'gpt-4-turbo'  # The OpenAI model to use
-commentThreshold: 50   # Minimum confidence threshold (0-100) for posting comments
-maxTokens: 4096        # Maximum tokens to use per API call
-temperature: 0.7       # Temperature for the AI generation (0.0-1.0) 
+  - include:
+      - '**/*.java'
+      - '**/*.kt'
+    prompt: >
+      Review this Java/Kotlin code focusing on OOP principles, exception handling, and performance.
+      Check for memory leaks, thread safety issues, and opportunities for improved design patterns.
+
+  - include:
+      - '**/*.rb'
+    prompt: >
+      Review this Ruby code focusing on Ruby idioms, metaprogramming concerns, and Ruby best practices.
+      Look for potential performance bottlenecks and areas where the code could be more elegant.
+
+  - include:
+      - '**/*.sql'
+    prompt: >
+      Review this SQL code focusing on query performance, proper indexing suggestions,
+      and potential SQL injection vulnerabilities. Check for unnecessarily complex queries
+      and opportunities for optimization.
+
+  - include:
+      - '**/Dockerfile'
+      - '**/*.dockerfile'
+      - '**/docker-compose.yml'
+    prompt: >
+      Review this Docker configuration focusing on security best practices, image size optimization,
+      and efficient layer caching. Look for potential security vulnerabilities and inefficient patterns. 

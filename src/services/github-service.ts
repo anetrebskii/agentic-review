@@ -3,6 +3,7 @@ import * as github from '@actions/github';
 import { CodeReviewConfig } from '../config/default-config';
 import { Octokit } from '@octokit/rest';
 import { minimatch } from 'minimatch';
+import { OpenAIService } from './openai-service';
 
 export interface PullRequestFile {
   filename: string;
@@ -29,8 +30,9 @@ export class GitHubService {
   private octokit: GitHubOctokit;
   private config: CodeReviewConfig;
   private context: typeof github.context;
+  private openaiService: OpenAIService;
   
-  constructor(config: CodeReviewConfig) {
+  constructor(config: CodeReviewConfig, openaiService: OpenAIService) {
     const token = core.getInput('github-token');
     if (!token) {
       throw new Error('GitHub token is required');
@@ -39,6 +41,7 @@ export class GitHubService {
     this.octokit = github.getOctokit(token);
     this.config = config;
     this.context = github.context;
+    this.openaiService = openaiService;
   }
 
   /**
@@ -70,19 +73,23 @@ export class GitHubService {
 
       const files = response.data;
       
-      // Filter files based on include/exclude patterns
+      // Filter files based on rules and exclude patterns
       return files.filter((file: PullRequestFile) => {
-        // Check if file matches include patterns
-        const included = this.config.includeFiles.some(pattern => 
+        // First check if file matches any exclude patterns
+        const excluded = this.config.excludeFiles.some((pattern: string) => 
           minimatch(file.filename, pattern)
         );
         
-        // Check if file matches exclude patterns
-        const excluded = this.config.excludeFiles.some(pattern => 
-          minimatch(file.filename, pattern)
+        if (excluded) {
+          return false;
+        }
+        
+        // Then check if file matches any rule's include patterns
+        const included = this.config.rules.some(rule => 
+          rule.include.some((pattern: string) => minimatch(file.filename, pattern))
         );
         
-        return included && !excluded;
+        return included;
       });
     } catch (error) {
       core.error(`Error getting changed files: ${error instanceof Error ? error.message : String(error)}`);
@@ -183,7 +190,7 @@ export class GitHubService {
       
       // Filter comments based on confidence threshold
       const filteredComments = comments.filter(
-        comment => comment.confidence >= this.config.commentThreshold
+        comment => comment.confidence >= this.openaiService.getCommentThreshold()
       );
       
       if (filteredComments.length === 0) {

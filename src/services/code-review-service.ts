@@ -10,8 +10,8 @@ export class CodeReviewService {
   
   constructor(config: CodeReviewConfig) {
     this.config = config;
-    this.githubService = new GitHubService(config);
     this.openaiService = new OpenAIService(config);
+    this.githubService = new GitHubService(config, this.openaiService);
   }
   
   /**
@@ -101,6 +101,7 @@ export class CodeReviewService {
       core.info(`Analyzing file ${file.filename}...`);
       const initialAnalysis = await this.openaiService.analyzeCode(
         file.patch,
+        file.filename,
         fileContent ? `Full file context:\n${fileContent}` : undefined
       );
       
@@ -115,6 +116,7 @@ export class CodeReviewService {
       const followUpAnalysis = await this.openaiService.makeFollowUpInquiry(
         initialAnalysis,
         file.patch,
+        file.filename,
         conversation
       );
       

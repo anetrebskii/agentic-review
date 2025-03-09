@@ -1,25 +1,27 @@
+export interface ReviewRule {
+  include: string[];
+  prompt: string;
+}
+
 export interface CodeReviewConfig {
-  includeFiles: string[];
   excludeFiles: string[];
-  promptRules: {
-    systemPrompt: string;
-    userPrompt: string;
-  };
-  model: string;
-  commentThreshold: number;
-  maxTokens: number;
-  temperature: number;
+  rules: ReviewRule[];
 }
 
 export const defaultConfig: CodeReviewConfig = {
-  includeFiles: ['**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.go', '**/*.java', '**/*.rb'],
-  excludeFiles: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.test.ts', '**/*.spec.ts'],
-  promptRules: {
-    systemPrompt: 'You are an expert code reviewer. Analyze the following code changes and provide constructive feedback. Focus on code quality, potential bugs, security issues, and performance concerns.',
-    userPrompt: 'Please review the following code changes:\n\n{code}\n\nProvide specific, actionable feedback with reasoning.'
-  },
-  model: 'gpt-4-turbo',
-  commentThreshold: 50,
-  maxTokens: 4096,
-  temperature: 0.7
+  excludeFiles: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.test.ts', '**/*.spec.ts', '**/*.min.js'],
+  rules: [
+    {
+      include: ['**/*.ts', '**/*.tsx'],
+      prompt: 'Review this TypeScript code focusing on type safety, proper interface usage, and adherence to TypeScript best practices. Look for potential null/undefined issues, incorrect typing, and opportunities to improve type definitions.'
+    },
+    {
+      include: ['**/*.js', '**/*.jsx'],
+      prompt: 'Review this JavaScript code focusing on potential runtime errors, variable scope issues, and modern JavaScript practices. Check for proper error handling, async/await usage, and potential memory leaks.'
+    },
+    {
+      include: ['**/*.py'],
+      prompt: 'Review this Python code focusing on PEP 8 compliance, proper exception handling, and Pythonic approaches. Check for inefficient algorithms, unnecessary complexity, and security vulnerabilities like SQL injection or unsafe eval.'
+    }
+  ]
 }; 

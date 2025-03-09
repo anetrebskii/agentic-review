@@ -14,11 +14,11 @@ jobs:
           fetch-depth: 0
 
       - name: AI Code Review
-        uses: your-github-username/code-review-action@v1
+        uses: anetrebskii/code-review-action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           # Optional parameters:
-          # config-path: '.github/code-review-config.yml'
+          config-path: '.github/code-review-config.yml'
           # model: 'gpt-4-turbo'
           # comment-threshold: '50' 
