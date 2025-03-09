@@ -46,21 +46,13 @@ export class CodeReviewService {
         return;
       }
       
-      // Create in-progress check run
-      const checkRunId = await this.githubService.createInProgressCheckRun();
-      core.info(`Created check run with ID: ${checkRunId}`);
-      
       // Get changed files with context
       const changedFiles = await this.githubService.getChangedFiles(prNumber);
       core.info(`Found ${changedFiles.length} changed files to review.`);
       core.info(`Changed files: ${JSON.stringify(changedFiles, null, 2)}`);
       
       if (changedFiles.length === 0) {
-        await this.githubService.completeCheckRun(
-          checkRunId, 
-          'success', 
-          'No files to review based on configuration filters.'
-        );
+        core.info('No files to review based on configuration filters.');
         return;
       }
       
@@ -84,13 +76,7 @@ export class CodeReviewService {
       // Add review comments to PR
       await this.githubService.addReviewComments(prNumber, allComments);
       
-      // Complete check run
-      await this.githubService.completeCheckRun(
-        checkRunId,
-        'success',
-        `Completed AI code review with ${allComments.length} comments.`
-      );
-      
+      core.info(`Completed AI code review with ${allComments.length} comments.`);
     } catch (error) {
       core.error(`Error running code review: ${error instanceof Error ? error.message : String(error)}`);
       core.setFailed(`Code review failed: ${error instanceof Error ? error.message : String(error)}`);

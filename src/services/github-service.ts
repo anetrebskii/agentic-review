@@ -328,15 +328,15 @@ export class GitHubService {
         owner,
         repo,
         path,
-        ref: this.context.payload.pull_request?.head.sha,
+        ref: this.context.payload.pull_request?.head.sha || this.context.sha,
       });
 
-      // Check if we got a file (not a directory)
-      if ('content' in response.data && 'encoding' in response.data) {
-        const content = Buffer.from(response.data.content, response.data.encoding as BufferEncoding).toString();
+      if ('content' in response.data) {
+        // Decode base64 content
+        const content = Buffer.from(response.data.content, 'base64').toString();
         return content;
       } else {
-        throw new Error(`Could not get content for ${path}`);
+        throw new Error(`Unexpected content format for ${path}`);
       }
     } catch (error) {
       core.error(`Error getting file content: ${error instanceof Error ? error.message : String(error)}`);
@@ -345,63 +345,9 @@ export class GitHubService {
   }
 
   /**
-   * Creates a check run to indicate the code review is in progress
-   * @returns The check run ID
-   */
-  async createInProgressCheckRun(): Promise<number> {
-    try {
-      const { owner, repo } = this.context.repo;
-      const response = await this.octokit.rest.checks.create({
-        owner,
-        repo,
-        name: 'AI Code Review',
-        head_sha: this.context.payload.pull_request?.head.sha || this.context.sha,
-        status: 'in_progress',
-        started_at: new Date().toISOString(),
-      });
-
-      return response.data.id;
-    } catch (error) {
-      core.error(`Error creating check run: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Updates the check run with the review results
-   * @param checkRunId Check run ID
-   * @param conclusion The conclusion of the review (success, failure, etc.)
-   * @param summary Summary of the review
-   */
-  async completeCheckRun(
-    checkRunId: number, 
-    conclusion: 'success' | 'failure' | 'neutral', 
-    summary: string
-  ): Promise<void> {
-    try {
-      const { owner, repo } = this.context.repo;
-      await this.octokit.rest.checks.update({
-        owner,
-        repo,
-        check_run_id: checkRunId,
-        status: 'completed',
-        conclusion,
-        completed_at: new Date().toISOString(),
-        output: {
-          title: 'AI Code Review Results',
-          summary,
-        },
-      });
-    } catch (error) {
-      core.error(`Error completing check run: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Determine if a file can be commented on in a PR
-   * @param file The pull request file
-   * @returns Boolean indicating if comments are possible
+   * Determines if a file can be commented on
+   * @param file The file to check
+   * @returns True if the file can be commented on
    */
   private isFileCommentable(file: PullRequestFile): boolean {
     // GitHub doesn't allow comments on deleted files

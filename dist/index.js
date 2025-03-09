@@ -174,15 +174,12 @@ class CodeReviewService {
                 core.setFailed('This action must be run in a pull request context.');
                 return;
             }
-            // Create in-progress check run
-            const checkRunId = await this.githubService.createInProgressCheckRun();
-            core.info(`Created check run with ID: ${checkRunId}`);
             // Get changed files with context
             const changedFiles = await this.githubService.getChangedFiles(prNumber);
             core.info(`Found ${changedFiles.length} changed files to review.`);
             core.info(`Changed files: ${JSON.stringify(changedFiles, null, 2)}`);
             if (changedFiles.length === 0) {
-                await this.githubService.completeCheckRun(checkRunId, 'success', 'No files to review based on configuration filters.');
+                core.info('No files to review based on configuration filters.');
                 return;
             }
             // Review each file
@@ -200,8 +197,7 @@ class CodeReviewService {
             core.info(`All comments: ${JSON.stringify(allComments, null, 2)}`);
             // Add review comments to PR
             await this.githubService.addReviewComments(prNumber, allComments);
-            // Complete check run
-            await this.githubService.completeCheckRun(checkRunId, 'success', `Completed AI code review with ${allComments.length} comments.`);
+            core.info(`Completed AI code review with ${allComments.length} comments.`);
         }
         catch (error) {
             core.error(`Error running code review: ${error instanceof Error ? error.message : String(error)}`);
@@ -697,15 +693,15 @@ class GitHubService {
                 owner,
                 repo,
                 path,
-                ref: this.context.payload.pull_request?.head.sha,
+                ref: this.context.payload.pull_request?.head.sha || this.context.sha,
             });
-            // Check if we got a file (not a directory)
-            if ('content' in response.data && 'encoding' in response.data) {
-                const content = Buffer.from(response.data.content, response.data.encoding).toString();
+            if ('content' in response.data) {
+                // Decode base64 content
+                const content = Buffer.from(response.data.content, 'base64').toString();
                 return content;
             }
             else {
-                throw new Error(`Could not get content for ${path}`);
+                throw new Error(`Unexpected content format for ${path}`);
             }
         }
         catch (error) {
@@ -714,58 +710,9 @@ class GitHubService {
         }
     }
     /**
-     * Creates a check run to indicate the code review is in progress
-     * @returns The check run ID
-     */
-    async createInProgressCheckRun() {
-        try {
-            const { owner, repo } = this.context.repo;
-            const response = await this.octokit.rest.checks.create({
-                owner,
-                repo,
-                name: 'AI Code Review',
-                head_sha: this.context.payload.pull_request?.head.sha || this.context.sha,
-                status: 'in_progress',
-                started_at: new Date().toISOString(),
-            });
-            return response.data.id;
-        }
-        catch (error) {
-            core.error(`Error creating check run: ${error instanceof Error ? error.message : String(error)}`);
-            throw error;
-        }
-    }
-    /**
-     * Updates the check run with the review results
-     * @param checkRunId Check run ID
-     * @param conclusion The conclusion of the review (success, failure, etc.)
-     * @param summary Summary of the review
-     */
-    async completeCheckRun(checkRunId, conclusion, summary) {
-        try {
-            const { owner, repo } = this.context.repo;
-            await this.octokit.rest.checks.update({
-                owner,
-                repo,
-                check_run_id: checkRunId,
-                status: 'completed',
-                conclusion,
-                completed_at: new Date().toISOString(),
-                output: {
-                    title: 'AI Code Review Results',
-                    summary,
-                },
-            });
-        }
-        catch (error) {
-            core.error(`Error completing check run: ${error instanceof Error ? error.message : String(error)}`);
-            throw error;
-        }
-    }
-    /**
-     * Determine if a file can be commented on in a PR
-     * @param file The pull request file
-     * @returns Boolean indicating if comments are possible
+     * Determines if a file can be commented on
+     * @param file The file to check
+     * @returns True if the file can be commented on
      */
     isFileCommentable(file) {
         // GitHub doesn't allow comments on deleted files
