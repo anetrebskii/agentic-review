@@ -98,9 +98,9 @@ export class OpenAIService {
 
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
-        'Analyze the code changes and provide constructive feedback. ' +
-        'Be specific and actionable in your feedback, explaining why a change is recommended. ' +
-        'For each issue, rate its severity (low, medium, high) and provide a suggested fix if possible.';
+        'Provide only very concise feedback with one feature sentence per issue. ' +
+        'Be extremely brief but precise in your feedback. ' +
+        'For each issue, just rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
       
       let userPrompt = `${matchingRule.prompt}\n\n`;
       
@@ -115,8 +115,9 @@ export class OpenAIService {
         userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
       }
       
-      userPrompt += 'Please provide specific, actionable feedback with reasoning focused only on the changed code. ' +
-        'For each issue, include a severity rating and a suggested fix if possible.';
+      userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
+        'Simply state severity (low/medium/high) and a brief fix suggestion per issue. ' +
+        'Use feature sentences only - no explanations or reasoning.';
 
       core.debug(`Using model: ${this.model}`);
       core.debug(`Using rule prompt for file type: ${file.filename}`);
@@ -146,10 +147,10 @@ export class OpenAIService {
   private async analyzeWithGenericPrompt(file: EnhancedPRFile): Promise<string> {
     const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
       'Focus specifically on the changes in this pull request, not the entire file. ' +
-      'Analyze the code changes and provide constructive feedback. ' +
+      'Provide only very concise feedback with one feature sentence per issue. ' +
       'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
-      'Be specific and actionable in your feedback, explaining why a change is recommended. ' +
-      'For each issue, rate its severity (low, medium, high) and provide a suggested fix if possible.';
+      'Be extremely brief but precise in your feedback. ' +
+      'For each issue, just rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
     
     let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
     
@@ -164,8 +165,9 @@ export class OpenAIService {
       userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
     }
     
-    userPrompt += 'Provide specific, actionable feedback with reasoning focused only on the changed code. ' +
-      'For each issue, include a severity rating and a suggested fix if possible.';
+    userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
+      'Simply state severity (low/medium/high) and a brief fix suggestion per issue. ' +
+      'Use feature sentences only - no explanations or reasoning.';
 
     const response = await this.openai.chat.completions.create({
       model: this.model,
@@ -198,8 +200,8 @@ export class OpenAIService {
       
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
-        'Analyze the code changes and provide constructive feedback. ' +
-        'Be specific and actionable in your feedback, explaining why a change is recommended.';
+        'Provide only very concise feedback with one feature sentence per issue. ' +
+        'Be extremely brief but precise in your feedback.';
 
       // Build the conversation history
       const messages = [
@@ -208,8 +210,8 @@ export class OpenAIService {
         { 
           role: 'user' as const, 
           content: matchingRule 
-            ? `Based on your initial analysis of the changes to ${file.filename} and the specific review focus (${matchingRule.prompt.substring(0, 100)}...), do you need any clarification or would you like to examine any specific part of the changed code more deeply?` 
-            : `Based on your initial analysis of the changes to ${file.filename}, do you need any clarification or would you like to examine any specific part of the changed code more deeply?` 
+            ? `Based on your initial analysis of the changes to ${file.filename} and the specific review focus (${matchingRule.prompt.substring(0, 100)}...), provide only concise, one-sentence feedback for any additional issues. Use feature sentences only.` 
+            : `Based on your initial analysis of the changes to ${file.filename}, provide only concise, one-sentence feedback for any additional issues. Use feature sentences only.` 
         }
       ];
 
