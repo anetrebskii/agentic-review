@@ -102,6 +102,7 @@ The action outputs review results in a structured JSON format to facilitate prog
 - **comment**: The review comment/feedback for the issue
 - **filePath**: Path to the file containing the issue
 - **line**: Line number where the comment should be placed (null for general comments)
+- **position**: Position in the diff for GitHub comments (can be used for precise comment placement)
 
 ### Example JSON Output:
 
@@ -110,12 +111,14 @@ The action outputs review results in a structured JSON format to facilitate prog
   {
     "comment": "Medium: Missing type annotation for function parameter - add explicit type definition",
     "filePath": "src/components/UserProfile.tsx",
-    "line": 42
+    "line": 42,
+    "position": 15
   },
   {
     "comment": "High: Potential memory leak in useEffect - add cleanup function",
     "filePath": "src/hooks/useDataFetching.ts",
-    "line": 23
+    "line": 23,
+    "position": 8
   }
 ]
 ```

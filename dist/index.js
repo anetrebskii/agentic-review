@@ -292,9 +292,19 @@ class CodeReviewService {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
                 if (issueComment) {
+                    // Check if line number is in change map
+                    let position = undefined;
+                    if (file.changeMap) {
+                        // Try to find the position of this line in the changes
+                        if (file.changeMap.additions.includes(lineNumber)) {
+                            // This is an added line, so it should be in the diff
+                            position = lineNumber;
+                        }
+                    }
                     comments.push({
                         path: file.filename,
                         line: lineNumber,
+                        position: position, // Add position if we can determine it
                         body: issueComment,
                         confidence: 100
                     });
@@ -321,9 +331,19 @@ class CodeReviewService {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
                 if (issueComment) {
+                    // Check if line number is in change map
+                    let position = undefined;
+                    if (file.changeMap) {
+                        // Try to find the position of this line in the changes
+                        if (file.changeMap.additions.includes(lineNumber)) {
+                            // This is an added line, so it should be in the diff
+                            position = lineNumber;
+                        }
+                    }
                     comments.push({
                         path: file.filename,
                         line: lineNumber,
+                        position: position, // Add position if we can determine it
                         body: issueComment,
                         confidence: 100
                     });
@@ -772,7 +792,8 @@ class GitHubService {
             const jsonReviewResults = filteredComments.map(comment => ({
                 comment: comment.body,
                 filePath: comment.path,
-                line: comment.line || null
+                line: comment.line || null,
+                position: comment.position || null
             }));
             // Set as GitHub Action output
             core.setOutput('review-results', JSON.stringify(jsonReviewResults));
@@ -802,8 +823,12 @@ class GitHubService {
             for (const comment of filteredComments) {
                 try {
                     let position;
-                    // For line-specific comments, calculate the position in the diff
-                    if (comment.line) {
+                    // If the comment already has a position from the AI, use it directly
+                    if (comment.position !== undefined) {
+                        position = comment.position;
+                    }
+                    // Otherwise, for line-specific comments, calculate the position in the diff
+                    else if (comment.line) {
                         // First, get the file data to access the patch
                         const fileData = await this.octokit.rest.pulls.listFiles({
                             owner,
@@ -815,7 +840,7 @@ class GitHubService {
                         }
                     }
                     // If we have a valid position, add a comment at that position
-                    if (position !== undefined) {
+                    if (position !== undefined && position !== null) {
                         reviewComments.push({
                             path: comment.path,
                             position: position,
@@ -997,6 +1022,7 @@ class OpenAIService {
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+                'Your review will be used to create GitHub comments at the specified positions. ' +
                 'Provide only very concise feedback with one issue per line reference. ' +
                 'Be extremely brief but precise in your feedback. ' +
                 'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
@@ -1012,6 +1038,7 @@ class OpenAIService {
             }
             userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
                 'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+                'Ensure all issues have an exact line number reference. ' +
                 'Use feature sentences only - no explanations or reasoning.';
             core.debug(`Using model: ${this.model}`);
             core.debug(`Using rule prompt for file type: ${file.filename}`);
@@ -1042,6 +1069,7 @@ class OpenAIService {
             'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
             'It\'s critical that you identify the precise line number where each issue occurs. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+            'Your review will be used to create GitHub comments at the specified positions. ' +
             'Provide only very concise feedback with one issue per line reference. ' +
             'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
             'Be extremely brief but precise in your feedback. ' +
@@ -1058,6 +1086,7 @@ class OpenAIService {
         }
         userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
             'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+            'Ensure all issues have an exact line number reference. ' +
             'Use feature sentences only - no explanations or reasoning.';
         const response = await this.openai.chat.completions.create({
             model: this.model,
@@ -1086,6 +1115,7 @@ class OpenAIService {
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+                'Your review will be used to create GitHub comments at the specified positions. ' +
                 'Provide only very concise feedback with one feature sentence per issue. ' +
                 'Be extremely brief but precise in your feedback.';
             // Build the conversation history

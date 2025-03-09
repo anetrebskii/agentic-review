@@ -101,6 +101,7 @@ export class OpenAIService {
         'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
         'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+        'Your review will be used to create GitHub comments at the specified positions. ' +
         'Provide only very concise feedback with one issue per line reference. ' +
         'Be extremely brief but precise in your feedback. ' +
         'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
@@ -120,6 +121,7 @@ export class OpenAIService {
       
       userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
         'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+        'Ensure all issues have an exact line number reference. ' +
         'Use feature sentences only - no explanations or reasoning.';
 
       core.debug(`Using model: ${this.model}`);
@@ -153,6 +155,7 @@ export class OpenAIService {
       'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
       'It\'s critical that you identify the precise line number where each issue occurs. ' +
       'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+      'Your review will be used to create GitHub comments at the specified positions. ' +
       'Provide only very concise feedback with one issue per line reference. ' +
       'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
       'Be extremely brief but precise in your feedback. ' +
@@ -173,6 +176,7 @@ export class OpenAIService {
     
     userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
       'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+      'Ensure all issues have an exact line number reference. ' +
       'Use feature sentences only - no explanations or reasoning.';
 
     const response = await this.openai.chat.completions.create({
@@ -209,6 +213,7 @@ export class OpenAIService {
         'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
         'It\'s critical that you identify the precise line number where each issue occurs. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+        'Your review will be used to create GitHub comments at the specified positions. ' +
         'Provide only very concise feedback with one feature sentence per issue. ' +
         'Be extremely brief but precise in your feedback.';
 

@@ -470,7 +470,8 @@ export class GitHubService {
       const jsonReviewResults = filteredComments.map(comment => ({
         comment: comment.body,
         filePath: comment.path,
-        line: comment.line || null
+        line: comment.line || null,
+        position: comment.position || null
       }));
       
       // Set as GitHub Action output
@@ -507,8 +508,12 @@ export class GitHubService {
         try {
           let position;
           
-          // For line-specific comments, calculate the position in the diff
-          if (comment.line) {
+          // If the comment already has a position from the AI, use it directly
+          if (comment.position !== undefined) {
+            position = comment.position;
+          }
+          // Otherwise, for line-specific comments, calculate the position in the diff
+          else if (comment.line) {
             // First, get the file data to access the patch
             const fileData = await this.octokit.rest.pulls.listFiles({
               owner,
@@ -524,7 +529,7 @@ export class GitHubService {
           }
           
           // If we have a valid position, add a comment at that position
-          if (position !== undefined) {
+          if (position !== undefined && position !== null) {
             reviewComments.push({
               path: comment.path,
               position: position,

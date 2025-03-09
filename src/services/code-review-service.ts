@@ -199,9 +199,21 @@ export class CodeReviewService {
         const issueComment = match[2].trim();
         
         if (issueComment) {
+          // Check if line number is in change map
+          let position = undefined;
+          
+          if (file.changeMap) {
+            // Try to find the position of this line in the changes
+            if (file.changeMap.additions.includes(lineNumber)) {
+              // This is an added line, so it should be in the diff
+              position = lineNumber;
+            }
+          }
+          
           comments.push({
             path: file.filename,
             line: lineNumber,
+            position: position, // Add position if we can determine it
             body: issueComment,
             confidence: 100
           });
@@ -233,9 +245,21 @@ export class CodeReviewService {
         const issueComment = match[2].trim();
         
         if (issueComment) {
+          // Check if line number is in change map
+          let position = undefined;
+          
+          if (file.changeMap) {
+            // Try to find the position of this line in the changes
+            if (file.changeMap.additions.includes(lineNumber)) {
+              // This is an added line, so it should be in the diff
+              position = lineNumber;
+            }
+          }
+          
           comments.push({
             path: file.filename,
             line: lineNumber,
+            position: position, // Add position if we can determine it
             body: issueComment,
             confidence: 100
           });
