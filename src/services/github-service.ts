@@ -543,6 +543,9 @@ export class GitHubService {
             continue;
           }
           
+          // Process the comment body to ensure severity formatting is preserved
+          // GitHub comments support markdown, so we can keep the formatting as-is
+          
           processedComments.push({
             ...comment,
             position
@@ -557,7 +560,9 @@ export class GitHubService {
         comment: comment.body,
         filePath: comment.path,
         line: comment.line || null,
-        position: comment.position || null
+        position: comment.position || null,
+        // Extract severity level for potential sorting/filtering by other tools
+        severityLevel: this.extractSeverityLevel(comment.body)
       }));
       
       // Set as GitHub Action output
@@ -631,5 +636,29 @@ export class GitHubService {
       core.error(`Error adding review comments: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+  
+  /**
+   * Extracts the severity level from a comment body
+   * @param commentBody The comment body text
+   * @returns The severity level (high, medium, low) or undefined if not found
+   */
+  private extractSeverityLevel(commentBody: string): string | undefined {
+    // Check for emoji + severity format
+    if (commentBody.includes('🔴 **High**')) {
+      return 'high';
+    } else if (commentBody.includes('🟠 **Medium**')) {
+      return 'medium';
+    } else if (commentBody.includes('🟡 **Low**')) {
+      return 'low';
+    }
+    
+    // Check for text-only format as fallback
+    const severityMatch = commentBody.match(/\b(high|medium|low)\b/i);
+    if (severityMatch) {
+      return severityMatch[1].toLowerCase();
+    }
+    
+    return undefined;
   }
 } 

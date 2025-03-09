@@ -103,22 +103,25 @@ The action outputs review results in a structured JSON format to facilitate prog
 - **filePath**: Path to the file containing the issue
 - **line**: Line number where the comment should be placed (null for general comments)
 - **position**: Position in the diff for GitHub comments (can be used for precise comment placement)
+- **severityLevel**: Extracted severity level (high, medium, low) for sorting or filtering
 
 ### Example JSON Output:
 
 ```json
 [
   {
-    "comment": "Medium: Missing type annotation for function parameter - add explicit type definition",
+    "comment": "Line 42: 🟠 **Medium** Missing type annotation for function parameter - add explicit type definition",
     "filePath": "src/components/UserProfile.tsx",
     "line": 42,
-    "position": 15
+    "position": 15,
+    "severityLevel": "medium"
   },
   {
-    "comment": "High: Potential memory leak in useEffect - add cleanup function",
+    "comment": "Line 23: 🔴 **High** Potential memory leak in useEffect - add cleanup function",
     "filePath": "src/hooks/useDataFetching.ts",
     "line": 23,
-    "position": 8
+    "position": 8,
+    "severityLevel": "high"
   }
 ]
 ```
@@ -158,6 +161,16 @@ This action creates individual GitHub code review comments directly on the relev
 - **Easier Navigation**: Jump directly to specific issues in the codebase
 - **Standard GitHub Flow**: Uses the same format as human code reviews
 - **Improved Collaboration**: Makes it easy to address and resolve specific feedback
+
+### Comment Severity Levels
+
+Comments are formatted with clear visual indicators of severity using emojis and markdown:
+
+- 🔴 **High**: Critical issues, bugs, or security concerns that should be addressed immediately
+- 🟠 **Medium**: Code quality issues, performance concerns, or maintainability problems
+- 🟡 **Low**: Style issues, minor improvements, or suggestions that would be nice to have
+
+This visual hierarchy makes it easy to prioritize which issues to address first and understand the relative importance of each comment.
 
 ### Precise Line Positioning
 

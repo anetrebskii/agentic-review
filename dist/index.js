@@ -880,6 +880,8 @@ class GitHubService {
                         core.warning(`Could not determine position for line ${comment.line} in ${comment.path}. Skipping comment.`);
                         continue;
                     }
+                    // Process the comment body to ensure severity formatting is preserved
+                    // GitHub comments support markdown, so we can keep the formatting as-is
                     processedComments.push({
                         ...comment,
                         position
@@ -894,7 +896,9 @@ class GitHubService {
                 comment: comment.body,
                 filePath: comment.path,
                 line: comment.line || null,
-                position: comment.position || null
+                position: comment.position || null,
+                // Extract severity level for potential sorting/filtering by other tools
+                severityLevel: this.extractSeverityLevel(comment.body)
             }));
             // Set as GitHub Action output
             core.setOutput('review-results', JSON.stringify(jsonReviewResults));
@@ -961,6 +965,29 @@ class GitHubService {
             core.error(`Error adding review comments: ${error instanceof Error ? error.message : String(error)}`);
             throw error;
         }
+    }
+    /**
+     * Extracts the severity level from a comment body
+     * @param commentBody The comment body text
+     * @returns The severity level (high, medium, low) or undefined if not found
+     */
+    extractSeverityLevel(commentBody) {
+        // Check for emoji + severity format
+        if (commentBody.includes('🔴 **High**')) {
+            return 'high';
+        }
+        else if (commentBody.includes('🟠 **Medium**')) {
+            return 'medium';
+        }
+        else if (commentBody.includes('🟡 **Low**')) {
+            return 'low';
+        }
+        // Check for text-only format as fallback
+        const severityMatch = commentBody.match(/\b(high|medium|low)\b/i);
+        if (severityMatch) {
+            return severityMatch[1].toLowerCase();
+        }
+        return undefined;
     }
 }
 exports.GitHubService = GitHubService;
@@ -1104,9 +1131,13 @@ class OpenAIService {
                 'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
-                'Provide only very concise feedback with one issue per line reference. ' +
+                'Provide only very concise feedback with one feature sentence per issue. ' +
                 'Be extremely brief but precise in your feedback. ' +
-                'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+                'For each issue, use this severity format: ' +
+                '🔴 **High**: for critical issues, bugs, or security concerns ' +
+                '🟠 **Medium**: for code quality issues, performance concerns ' +
+                '🟡 **Low**: for style, minor improvements, or suggestions ' +
+                'After the severity, provide a one-sentence suggested fix.';
             let userPrompt = `${matchingRule.prompt}\n\n`;
             // Add the changed content focus
             userPrompt += `FOCUS ON THESE SPECIFIC CHANGES in file ${file.filename}:\n\n`;
@@ -1118,7 +1149,11 @@ class OpenAIService {
                 userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
             }
             userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-                'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+                'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
+                'For severity, use: ' +
+                '🔴 **High** for critical issues or bugs, ' +
+                '🟠 **Medium** for code quality issues, ' +
+                '🟡 **Low** for style or minor improvements. ' +
                 'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
                 'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
                 'ONLY include comments where you can identify the exact line number. ' +
@@ -1161,10 +1196,13 @@ class OpenAIService {
             'Only comment on lines that have been added or modified in this PR. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
             'Your review will be used to create GitHub comments at the specified positions. ' +
-            'Provide only very concise feedback with one issue per line reference. ' +
-            'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
+            'Provide only very concise feedback with one feature sentence per issue. ' +
             'Be extremely brief but precise in your feedback. ' +
-            'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+            'For each issue, use this severity format: ' +
+            '🔴 **High**: for critical issues, bugs, or security concerns ' +
+            '🟠 **Medium**: for code quality issues, performance concerns ' +
+            '🟡 **Low**: for style, minor improvements, or suggestions ' +
+            'After the severity, provide a one-sentence suggested fix.';
         let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
         // Add the changed content focus
         userPrompt += `FOCUS ON THESE SPECIFIC CHANGES:\n\n`;
@@ -1176,7 +1214,11 @@ class OpenAIService {
             userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
         }
         userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-            'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+            'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
+            'For severity, use: ' +
+            '🔴 **High** for critical issues or bugs, ' +
+            '🟠 **Medium** for code quality issues, ' +
+            '🟡 **Low** for style or minor improvements. ' +
             'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
             'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
             'ONLY include comments where you can identify the exact line number. ' +
@@ -1218,7 +1260,12 @@ class OpenAIService {
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
                 'Provide only very concise feedback with one feature sentence per issue. ' +
-                'Be extremely brief but precise in your feedback.';
+                'Be extremely brief but precise in your feedback. ' +
+                'For each issue, use this severity format: ' +
+                '🔴 **High**: for critical issues, bugs, or security concerns ' +
+                '🟠 **Medium**: for code quality issues, performance concerns ' +
+                '🟡 **Low**: for style, minor improvements, or suggestions ' +
+                'After the severity, provide a one-sentence suggested fix.';
             // Build the conversation history
             const messages = [
                 { role: 'system', content: systemPrompt },

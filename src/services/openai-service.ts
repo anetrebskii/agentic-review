@@ -108,9 +108,13 @@ export class OpenAIService {
         'Only comment on lines that have been added or modified in this PR. ' +
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Your review will be used to create GitHub comments at the specified positions. ' +
-        'Provide only very concise feedback with one issue per line reference. ' +
+        'Provide only very concise feedback with one feature sentence per issue. ' +
         'Be extremely brief but precise in your feedback. ' +
-        'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+        'For each issue, use this severity format: ' +
+        '🔴 **High**: for critical issues, bugs, or security concerns ' +
+        '🟠 **Medium**: for code quality issues, performance concerns ' +
+        '🟡 **Low**: for style, minor improvements, or suggestions ' +
+        'After the severity, provide a one-sentence suggested fix.';
       
       let userPrompt = `${matchingRule.prompt}\n\n`;
       
@@ -126,7 +130,11 @@ export class OpenAIService {
       }
       
       userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-        'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+        'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
+        'For severity, use: ' +
+        '🔴 **High** for critical issues or bugs, ' +
+        '🟠 **Medium** for code quality issues, ' +
+        '🟡 **Low** for style or minor improvements. ' +
         'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
         'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
         'ONLY include comments where you can identify the exact line number. ' +
@@ -172,10 +180,13 @@ export class OpenAIService {
       'Only comment on lines that have been added or modified in this PR. ' +
       'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
       'Your review will be used to create GitHub comments at the specified positions. ' +
-      'Provide only very concise feedback with one issue per line reference. ' +
-      'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
+      'Provide only very concise feedback with one feature sentence per issue. ' +
       'Be extremely brief but precise in your feedback. ' +
-      'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+      'For each issue, use this severity format: ' +
+      '🔴 **High**: for critical issues, bugs, or security concerns ' +
+      '🟠 **Medium**: for code quality issues, performance concerns ' +
+      '🟡 **Low**: for style, minor improvements, or suggestions ' +
+      'After the severity, provide a one-sentence suggested fix.';
     
     let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
     
@@ -191,7 +202,11 @@ export class OpenAIService {
     }
     
     userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-      'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+      'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
+      'For severity, use: ' +
+      '🔴 **High** for critical issues or bugs, ' +
+      '🟠 **Medium** for code quality issues, ' +
+      '🟡 **Low** for style or minor improvements. ' +
       'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
       'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
       'ONLY include comments where you can identify the exact line number. ' +
@@ -241,7 +256,12 @@ export class OpenAIService {
         'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Your review will be used to create GitHub comments at the specified positions. ' +
         'Provide only very concise feedback with one feature sentence per issue. ' +
-        'Be extremely brief but precise in your feedback.';
+        'Be extremely brief but precise in your feedback. ' +
+        'For each issue, use this severity format: ' +
+        '🔴 **High**: for critical issues, bugs, or security concerns ' +
+        '🟠 **Medium**: for code quality issues, performance concerns ' +
+        '🟡 **Low**: for style, minor improvements, or suggestions ' +
+        'After the severity, provide a one-sentence suggested fix.';
 
       // Build the conversation history
       const messages = [
