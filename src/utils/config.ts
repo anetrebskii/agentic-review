@@ -16,9 +16,7 @@ export async function loadConfig(): Promise<CodeReviewConfig> {
     if (!fs.existsSync(configPath)) {
       core.info(`Config file not found at ${configPath}, using default configuration.`);
       return {
-        ...defaultConfig,
-        model: core.getInput('model') || defaultConfig.model,
-        commentThreshold: parseInt(core.getInput('comment-threshold') || defaultConfig.commentThreshold.toString(), 10)
+        ...defaultConfig
       };
     }
 
@@ -30,16 +28,23 @@ export async function loadConfig(): Promise<CodeReviewConfig> {
     const mergedConfig: CodeReviewConfig = {
       ...defaultConfig,
       ...userConfig,
-      promptRules: {
-        ...defaultConfig.promptRules,
-        ...userConfig.promptRules
-      },
-      model: core.getInput('model') || userConfig.model || defaultConfig.model,
-      commentThreshold: parseInt(
-        core.getInput('comment-threshold') || 
-        (userConfig.commentThreshold?.toString() || defaultConfig.commentThreshold.toString()), 
-        10
-      )
+      // Ensure rules from both configurations are merged properly
+      rules: [
+        ...(userConfig.rules || []),
+        // Include default rules that don't overlap with user rules
+        ...(defaultConfig.rules.filter(defaultRule => 
+          !(userConfig.rules || []).some(userRule => 
+            JSON.stringify(userRule.include.sort()) === JSON.stringify(defaultRule.include.sort())
+          )
+        ))
+      ],
+      // Include all exclude filters from both configs
+      excludeFiles: [
+        ...(userConfig.excludeFiles || []),
+        ...defaultConfig.excludeFiles.filter(pattern => 
+          !(userConfig.excludeFiles || []).includes(pattern)
+        )
+      ]
     };
 
     return mergedConfig;

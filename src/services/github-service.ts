@@ -24,6 +24,18 @@ export interface CodeReviewComment {
   confidence: number;
 }
 
+/**
+ * Enhanced version of PullRequestFile with contextual information
+ */
+export interface EnhancedPRFile extends PullRequestFile {
+  fullContent?: string;     // The full file content for context
+  changedContent?: string;  // Only the changed lines
+  changeMap?: {            // Map of line numbers to indicate additions/deletions
+    additions: number[];
+    deletions: number[];
+  };
+}
+
 type GitHubOctokit = ReturnType<typeof github.getOctokit>;
 
 export class GitHubService {
@@ -39,9 +51,32 @@ export class GitHubService {
     }
     
     this.octokit = github.getOctokit(token);
-    this.config = config;
+    this.config = this.validateConfig(config);
     this.context = github.context;
     this.openaiService = openaiService;
+  }
+
+  /**
+   * Validates and ensures config has required properties
+   * @param config Input configuration
+   * @returns Validated configuration
+   */
+  private validateConfig(config: any): CodeReviewConfig {
+    const validatedConfig = { ...config };
+    
+    // Ensure rules array exists
+    if (!Array.isArray(validatedConfig.rules)) {
+      core.warning('No rules found in configuration. Using empty rules array.');
+      validatedConfig.rules = [];
+    }
+    
+    // Ensure excludeFiles array exists
+    if (!Array.isArray(validatedConfig.excludeFiles)) {
+      core.warning('No excludeFiles found in configuration. Using empty excludeFiles array.');
+      validatedConfig.excludeFiles = [];
+    }
+    
+    return validatedConfig as CodeReviewConfig;
   }
 
   /**
@@ -58,11 +93,11 @@ export class GitHubService {
   }
 
   /**
-   * Gets the files changed in the PR
+   * Gets the files changed in the PR with enhanced information
    * @param prNumber Pull request number
-   * @returns List of files changed in the PR
+   * @returns List of enhanced files changed in the PR
    */
-  async getChangedFiles(prNumber: number): Promise<PullRequestFile[]> {
+  async getChangedFiles(prNumber: number): Promise<EnhancedPRFile[]> {
     try {
       const { owner, repo } = this.context.repo;
       const response = await this.octokit.pulls.listFiles({
@@ -71,10 +106,10 @@ export class GitHubService {
         pull_number: prNumber,
       });
 
-      const files = response.data;
+      const files = response.data as EnhancedPRFile[];
       
       // Filter files based on rules and exclude patterns
-      return files.filter((file: PullRequestFile) => {
+      const filteredFiles = files.filter((file: EnhancedPRFile) => {
         // First check if file matches any exclude patterns
         const excluded = this.config.excludeFiles.some((pattern: string) => 
           minimatch(file.filename, pattern)
@@ -91,10 +126,87 @@ export class GitHubService {
         
         return included;
       });
+
+      // Enhance filtered files with additional context
+      const enhancedFiles: EnhancedPRFile[] = [];
+      
+      for (const file of filteredFiles) {
+        try {
+          // Get the full file content for context
+          file.fullContent = await this.getFileContent(file.filename);
+          
+          // Extract just the changed content based on patch
+          if (file.patch) {
+            const { changedContent, changeMap } = this.extractChangedContent(file.patch, file.fullContent);
+            file.changedContent = changedContent;
+            file.changeMap = changeMap;
+          }
+          
+          enhancedFiles.push(file);
+        } catch (error) {
+          core.warning(`Could not enhance file ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
+          // Still include the file even if we couldn't enhance it
+          enhancedFiles.push(file);
+        }
+      }
+      
+      return enhancedFiles;
     } catch (error) {
       core.error(`Error getting changed files: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+
+  /**
+   * Extract the changed content from a patch
+   * @param patch The git patch
+   * @param fullContent The full file content
+   * @returns The changed content and a map of line numbers
+   */
+  private extractChangedContent(patch: string, fullContent?: string): { changedContent: string, changeMap: { additions: number[], deletions: number[] } } {
+    const changeMap = {
+      additions: [] as number[],
+      deletions: [] as number[]
+    };
+
+    // Extract only the added/changed lines (starting with +)
+    // Remove the first line which is just the file path info and hunk headers
+    const changedLines = patch
+      .split('\n')
+      .filter(line => {
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          // This is an added line, extract the line number if possible
+          const match = line.match(/^.*@@ -\d+,\d+ \+(\d+),\d+ @@/);
+          if (match && match[1]) {
+            changeMap.additions.push(parseInt(match[1], 10));
+          }
+          return true;
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          // This is a deleted line, extract the line number if possible
+          const match = line.match(/^.*@@ -(\d+),\d+ \+\d+,\d+ @@/);
+          if (match && match[1]) {
+            changeMap.deletions.push(parseInt(match[1], 10));
+          }
+          return false; // Don't include deletions in the content
+        } else if (line.startsWith('@@')) {
+          // This is a hunk header, keep it for context
+          return true;
+        }
+        return false; // Skip other lines (context lines)
+      })
+      .map(line => {
+        // Remove the leading + from added lines
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          return line.substring(1);
+        }
+        return line;
+      })
+      .join('\n');
+
+    return { 
+      changedContent: changedLines,
+      changeMap
+    };
   }
 
   /**

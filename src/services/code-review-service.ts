@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import { CodeReviewConfig } from '../config/default-config';
-import { GitHubService, PullRequestFile, CodeReviewComment } from './github-service';
+import { GitHubService, CodeReviewComment, EnhancedPRFile } from './github-service';
 import { OpenAIService } from './openai-service';
 
 export class CodeReviewService {
@@ -9,9 +9,30 @@ export class CodeReviewService {
   private openaiService: OpenAIService;
   
   constructor(config: CodeReviewConfig) {
-    this.config = config;
-    this.openaiService = new OpenAIService(config);
-    this.githubService = new GitHubService(config, this.openaiService);
+    // Ensure we have a valid config object
+    this.config = this.validateConfig(config);
+    this.openaiService = new OpenAIService(this.config);
+    this.githubService = new GitHubService(this.config, this.openaiService);
+  }
+  
+  /**
+   * Validates and ensures config has required properties
+   * @param config Input configuration
+   * @returns Validated configuration
+   */
+  private validateConfig(config: any): CodeReviewConfig {
+    const validatedConfig = { ...config };
+    
+    // Ensure we have default values for required properties
+    if (!Array.isArray(validatedConfig.rules)) {
+      validatedConfig.rules = [];
+    }
+    
+    if (!Array.isArray(validatedConfig.excludeFiles)) {
+      validatedConfig.excludeFiles = [];
+    }
+    
+    return validatedConfig as CodeReviewConfig;
   }
   
   /**
@@ -29,7 +50,7 @@ export class CodeReviewService {
       const checkRunId = await this.githubService.createInProgressCheckRun();
       core.info(`Created check run with ID: ${checkRunId}`);
       
-      // Get changed files
+      // Get changed files with context
       const changedFiles = await this.githubService.getChangedFiles(prNumber);
       core.info(`Found ${changedFiles.length} changed files to review.`);
       
@@ -46,7 +67,14 @@ export class CodeReviewService {
       const allComments: CodeReviewComment[] = [];
       for (const file of changedFiles) {
         core.info(`Reviewing file: ${file.filename}`);
-        const comments = await this.reviewFile(file);
+        
+        // Skip files without changes to review
+        if (!file.patch && !file.changedContent) {
+          core.info(`Skipping file ${file.filename} - no changes to review.`);
+          continue;
+        }
+        
+        const comments = await this.reviewEnhancedFile(file);
         allComments.push(...comments);
       }
       
@@ -67,47 +95,19 @@ export class CodeReviewService {
   }
   
   /**
-   * Reviews a single file
-   * @param file The file to review
+   * Reviews an enhanced file with changes and context
+   * @param file The enhanced file to review
    * @returns Comments for the file
    */
-  private async reviewFile(file: PullRequestFile): Promise<CodeReviewComment[]> {
+  private async reviewEnhancedFile(file: EnhancedPRFile): Promise<CodeReviewComment[]> {
     try {
-      // Skip files without patches (binary files, etc.)
-      if (!file.patch) {
-        core.info(`Skipping file ${file.filename} - no patch available.`);
-        return [];
-      }
-      
-      // Get file content for context
-      let fileContent: string;
-      try {
-        fileContent = await this.githubService.getFileContent(file.filename);
-      } catch (error) {
-        core.warning(`Could not get full file content for ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
-        fileContent = '';
-      }
-      
-      // Prepare context for the AI
-      const reviewContext = {
-        filename: file.filename,
-        language: this.detectLanguage(file.filename),
-        additions: file.additions,
-        deletions: file.deletions,
-        totalChanges: file.changes
-      };
-      
-      // Initial analysis
-      core.info(`Analyzing file ${file.filename}...`);
-      const initialAnalysis = await this.openaiService.analyzeCode(
-        file.patch,
-        file.filename,
-        fileContent ? `Full file context:\n${fileContent}` : undefined
-      );
+      // Initial analysis using the enhanced file
+      core.info(`Analyzing changes in file ${file.filename}...`);
+      const initialAnalysis = await this.openaiService.analyzeCodeChanges(file);
       
       // Start conversation for agentic review
       const conversation = [
-        { role: 'user' as const, content: `Please review the changes to ${file.filename}:\n\n${file.patch}` },
+        { role: 'user' as const, content: `Please review the changes to ${file.filename}` },
         { role: 'assistant' as const, content: initialAnalysis }
       ];
       
@@ -115,20 +115,24 @@ export class CodeReviewService {
       core.info(`Making follow-up inquiries for ${file.filename}...`);
       const followUpAnalysis = await this.openaiService.makeFollowUpInquiry(
         initialAnalysis,
-        file.patch,
-        file.filename,
+        file,
         conversation
       );
       
       // Parse comments and feedback
       core.info(`Parsing review results for ${file.filename}...`);
-      const comments = this.parseReviewFeedback(file.filename, initialAnalysis, followUpAnalysis);
+      const comments = this.parseReviewFeedback(file, initialAnalysis, followUpAnalysis);
       
       return comments;
     } catch (error) {
       core.error(`Error reviewing file ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
+  }
+  
+  // For backward compatibility
+  private async reviewFile(file: EnhancedPRFile): Promise<CodeReviewComment[]> {
+    return this.reviewEnhancedFile(file);
   }
   
   /**
@@ -167,13 +171,13 @@ export class CodeReviewService {
   
   /**
    * Parses review feedback and extracts comments
-   * @param filename The filename
+   * @param file The file being reviewed
    * @param initialAnalysis Initial analysis from the AI
    * @param followUpAnalysis Follow-up analysis from the AI
    * @returns Extracted comments
    */
   private parseReviewFeedback(
-    filename: string, 
+    file: EnhancedPRFile, 
     initialAnalysis: string, 
     followUpAnalysis: string
   ): CodeReviewComment[] {
@@ -181,8 +185,9 @@ export class CodeReviewService {
     
     // For now, we'll create a single comment with the combined analysis
     // In a more advanced implementation, we could parse the AI response more granularly
+    // and map comments to specific line numbers in the changed content
     comments.push({
-      path: filename,
+      path: file.filename,
       body: `## AI Code Review Feedback\n\n${initialAnalysis}\n\n### Follow-up Analysis\n\n${followUpAnalysis}`,
       confidence: 100 // High confidence for the overall analysis
     });

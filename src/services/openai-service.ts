@@ -2,6 +2,7 @@ import * as core from '@actions/core';
 import OpenAI from 'openai';
 import { CodeReviewConfig, ReviewRule } from '../config/default-config';
 import { minimatch } from 'minimatch';
+import { EnhancedPRFile } from './github-service';
 
 export class OpenAIService {
   private openai: OpenAI;
@@ -27,6 +28,39 @@ export class OpenAIService {
     this.commentThreshold = parseInt(core.getInput('comment-threshold') || '50', 10);
     this.maxTokens = 4096;
     this.temperature = 0.7;
+    
+    // For backward compatibility - check if config has legacy model properties
+    this.migrateLegacyConfig(config);
+  }
+  
+  /**
+   * Migrates legacy configuration if present
+   * @param config The configuration object
+   */
+  private migrateLegacyConfig(config: any): void {
+    // Check if the config has legacy model properties
+    if ('model' in config && typeof config.model === 'string') {
+      core.info('Detected legacy model configuration. Using model from config file.');
+      this.model = config.model;
+    }
+    
+    if ('commentThreshold' in config && typeof config.commentThreshold === 'number') {
+      core.info('Detected legacy commentThreshold configuration. Using threshold from config file.');
+      this.commentThreshold = config.commentThreshold;
+    }
+    
+    if ('maxTokens' in config && typeof config.maxTokens === 'number') {
+      this.maxTokens = config.maxTokens;
+    }
+    
+    if ('temperature' in config && typeof config.temperature === 'number') {
+      this.temperature = config.temperature;
+    }
+    
+    // Check for legacy promptRules
+    if ('promptRules' in config && typeof config.promptRules === 'object') {
+      core.warning('Detected legacy promptRules configuration. Please update your config file to use the new rules format.');
+    }
   }
 
   /**
@@ -48,33 +82,44 @@ export class OpenAIService {
   }
 
   /**
-   * Analyzes code changes using the OpenAI API
-   * @param codeChanges The code changes to analyze
-   * @param filename The filename being analyzed
-   * @param context Additional context about the changes
+   * Analyzes code changes using the OpenAI API with context
+   * @param file The enhanced PR file with changes and context
    * @returns Analysis results from the AI
    */
-  async analyzeCode(codeChanges: string, filename: string, context?: string): Promise<string> {
+  async analyzeCodeChanges(file: EnhancedPRFile): Promise<string> {
     try {
       // Find the matching rule for this file
-      const matchingRule = this.findMatchingRule(filename);
+      const matchingRule = this.findMatchingRule(file.filename);
       
       if (!matchingRule) {
-        core.warning(`No matching review rule found for ${filename}. Using generic prompt.`);
-        return this.analyzeCodeWithGenericPrompt(codeChanges, context);
+        core.warning(`No matching review rule found for ${file.filename}. Using generic prompt.`);
+        return this.analyzeWithGenericPrompt(file);
       }
 
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
+        'Focus specifically on the changes in this pull request, not the entire file. ' +
         'Analyze the code changes and provide constructive feedback. ' +
         'Be specific and actionable in your feedback, explaining why a change is recommended. ' +
         'For each issue, rate its severity (low, medium, high) and provide a suggested fix if possible.';
       
-      const userPrompt = `${matchingRule.prompt}\n\nHere is the code to review:\n\n${codeChanges}` + 
-        (context ? `\n\nAdditional context:\n${context}` : '') + 
-        '\n\nPlease provide specific, actionable feedback with reasoning. For each issue, include a severity rating and a suggested fix if possible.';
+      let userPrompt = `${matchingRule.prompt}\n\n`;
+      
+      // Add the changed content focus
+      userPrompt += `FOCUS ON THESE SPECIFIC CHANGES in file ${file.filename}:\n\n`;
+      userPrompt += file.changedContent ? `\`\`\`\n${file.changedContent}\n\`\`\`\n\n` : 
+                   (file.patch ? `\`\`\`\n${file.patch}\n\`\`\`\n\n` : '');
+      
+      // Add the full file context
+      if (file.fullContent) {
+        userPrompt += `FULL FILE CONTEXT (for reference only, focus your review on the changes above):\n\n`;
+        userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
+      }
+      
+      userPrompt += 'Please provide specific, actionable feedback with reasoning focused only on the changed code. ' +
+        'For each issue, include a severity rating and a suggested fix if possible.';
 
       core.debug(`Using model: ${this.model}`);
-      core.debug(`Using rule prompt for file type: ${filename}`);
+      core.debug(`Using rule prompt for file type: ${file.filename}`);
       
       const response = await this.openai.chat.completions.create({
         model: this.model,
@@ -94,21 +139,33 @@ export class OpenAIService {
   }
 
   /**
-   * Analyzes code with a generic prompt when no specific rule matches
-   * @param codeChanges The code changes to analyze
-   * @param context Additional context about the changes
+   * Analyzes with a generic prompt when no specific rule matches
+   * @param file The enhanced PR file
    * @returns Analysis results from the AI
    */
-  private async analyzeCodeWithGenericPrompt(codeChanges: string, context?: string): Promise<string> {
+  private async analyzeWithGenericPrompt(file: EnhancedPRFile): Promise<string> {
     const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
+      'Focus specifically on the changes in this pull request, not the entire file. ' +
       'Analyze the code changes and provide constructive feedback. ' +
       'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
       'Be specific and actionable in your feedback, explaining why a change is recommended. ' +
       'For each issue, rate its severity (low, medium, high) and provide a suggested fix if possible.';
     
-    const userPrompt = `Please review the following code changes:\n\n${codeChanges}` +
-      (context ? `\n\nAdditional context:\n${context}` : '') +
-      '\n\nProvide specific, actionable feedback with reasoning. For each issue, include a severity rating and a suggested fix if possible.';
+    let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
+    
+    // Add the changed content focus
+    userPrompt += `FOCUS ON THESE SPECIFIC CHANGES:\n\n`;
+    userPrompt += file.changedContent ? `\`\`\`\n${file.changedContent}\n\`\`\`\n\n` : 
+                 (file.patch ? `\`\`\`\n${file.patch}\n\`\`\`\n\n` : '');
+    
+    // Add the full file context
+    if (file.fullContent) {
+      userPrompt += `FULL FILE CONTEXT (for reference only, focus your review on the changes above):\n\n`;
+      userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
+    }
+    
+    userPrompt += 'Provide specific, actionable feedback with reasoning focused only on the changed code. ' +
+      'For each issue, include a severity rating and a suggested fix if possible.';
 
     const response = await this.openai.chat.completions.create({
       model: this.model,
@@ -124,24 +181,23 @@ export class OpenAIService {
   }
 
   /**
-   * Makes follow-up inquiries for agentic review mode
+   * Makes follow-up inquiries for agentic review mode, focusing on changes
    * @param initialAnalysis Initial analysis from the AI
-   * @param codeChanges The code changes to analyze
-   * @param filename The filename being analyzed
+   * @param file The enhanced PR file
    * @param conversation Previous conversation history
    * @returns Follow-up analysis
    */
   async makeFollowUpInquiry(
     initialAnalysis: string, 
-    codeChanges: string,
-    filename: string,
+    file: EnhancedPRFile,
     conversation: Array<{ role: 'system' | 'user' | 'assistant', content: string }>
   ): Promise<string> {
     try {
       // Find the matching rule for this file
-      const matchingRule = this.findMatchingRule(filename);
+      const matchingRule = this.findMatchingRule(file.filename);
       
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
+        'Focus specifically on the changes in this pull request, not the entire file. ' +
         'Analyze the code changes and provide constructive feedback. ' +
         'Be specific and actionable in your feedback, explaining why a change is recommended.';
 
@@ -152,8 +208,8 @@ export class OpenAIService {
         { 
           role: 'user' as const, 
           content: matchingRule 
-            ? `Based on your initial analysis and the specific review focus for ${filename} (${matchingRule.prompt.substring(0, 100)}...), do you need any clarification or would you like to examine any specific part of the code more deeply?` 
-            : 'Based on your initial analysis, do you need any clarification or would you like to examine any specific part of the code more deeply?' 
+            ? `Based on your initial analysis of the changes to ${file.filename} and the specific review focus (${matchingRule.prompt.substring(0, 100)}...), do you need any clarification or would you like to examine any specific part of the changed code more deeply?` 
+            : `Based on your initial analysis of the changes to ${file.filename}, do you need any clarification or would you like to examine any specific part of the changed code more deeply?` 
         }
       ];
 
@@ -169,5 +225,25 @@ export class OpenAIService {
       core.error(`Error making follow-up inquiry: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+
+  // Keep the old methods for backward compatibility until we fully update all code
+  async analyzeCode(codeChanges: string, filename: string, context?: string): Promise<string> {
+    core.warning('analyzeCode method is deprecated, use analyzeCodeChanges instead');
+    
+    const mockFile: EnhancedPRFile = {
+      filename: filename,
+      status: 'modified',
+      additions: 0,
+      deletions: 0,
+      changes: 0,
+      patch: codeChanges,
+      blob_url: '',
+      raw_url: '',
+      contents_url: '',
+      fullContent: context
+    };
+    
+    return this.analyzeCodeChanges(mockFile);
   }
 } 
