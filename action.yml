@@ -25,6 +25,10 @@ inputs:
     required: false
     default: '50'
 
+outputs:
+  review-results:
+    description: 'JSON string containing review comments with file paths and line numbers'
+
 runs:
   using: 'node20'
   main: 'dist/index.js' 

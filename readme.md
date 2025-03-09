@@ -6,6 +6,8 @@ A GitHub Action for AI-assisted code reviews using ChatGPT or other AI models. T
 
 - **ChatGPT Integration**: Use ChatGPT to review your code through the OpenAI API
 - **Focus on Changes**: Reviews only the changed code in PRs while providing full file context for better analysis
+- **JSON Output Format**: Creates structured JSON with comments, file paths, and line numbers for programmatic processing
+- **GitHub Action Output**: Provides review results as action output for further workflow automation
 - **Configurable Settings**: Customize file filters and review prompts via configuration file
 - **Agentic Review Mode**: AI makes multiple calls to thoroughly assess the code
 - **Pull Request Integration**: Updates PR status and adds review comments automatically
@@ -91,6 +93,58 @@ You can configure the model settings using the GitHub Action inputs:
 - `comment-threshold`: Minimum confidence threshold for posting comments (default: 50)
 
 A sample configuration file is provided in the repository (`sample-config.yml`).
+
+## Using the JSON Output
+
+The action outputs review results in a structured JSON format to facilitate programmatic usage. The JSON contains:
+
+- **comment**: The review comment/feedback for the issue
+- **filePath**: Path to the file containing the issue
+- **line**: Line number where the comment should be placed (null for general comments)
+
+### Example JSON Output:
+
+```json
+[
+  {
+    "comment": "Medium: Missing type annotation for function parameter - add explicit type definition",
+    "filePath": "src/components/UserProfile.tsx",
+    "line": 42
+  },
+  {
+    "comment": "High: Potential memory leak in useEffect - add cleanup function",
+    "filePath": "src/hooks/useDataFetching.ts",
+    "line": 23
+  }
+]
+```
+
+### Accessing Action Output
+
+You can access the review results in subsequent workflow steps:
+
+```yaml
+steps:
+  - name: AI Code Review
+    id: code-review  # Important: add ID to reference outputs
+    uses: your-github-username/code-review-action@v1
+    with:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+  
+  - name: Process Review Results
+    if: always()
+    run: |
+      echo "Processing review results..."
+      # Access the results as JSON
+      REVIEW_RESULTS='${{ steps.code-review.outputs.review-results }}'
+      # Do something with the results (e.g., save to file, parse with jq, etc.)
+      echo "$REVIEW_RESULTS" > review-results.json
+```
+
+### JSON Result File
+
+In addition to the action output, the review results are saved as a JSON file in the `.github/code-review-results/` directory when the action has sufficient permissions to write to the repository. This file is named with the pattern `review-{PR_NUMBER}-{TIMESTAMP}.json`.
 
 ## Development
 

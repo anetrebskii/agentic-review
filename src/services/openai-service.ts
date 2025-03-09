@@ -98,9 +98,11 @@ export class OpenAIService {
 
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
-        'Provide only very concise feedback with one feature sentence per issue. ' +
+        'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+        'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+        'Provide only very concise feedback with one issue per line reference. ' +
         'Be extremely brief but precise in your feedback. ' +
-        'For each issue, just rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+        'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
       
       let userPrompt = `${matchingRule.prompt}\n\n`;
       
@@ -116,7 +118,7 @@ export class OpenAIService {
       }
       
       userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-        'Simply state severity (low/medium/high) and a brief fix suggestion per issue. ' +
+        'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
         'Use feature sentences only - no explanations or reasoning.';
 
       core.debug(`Using model: ${this.model}`);
@@ -147,10 +149,12 @@ export class OpenAIService {
   private async analyzeWithGenericPrompt(file: EnhancedPRFile): Promise<string> {
     const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
       'Focus specifically on the changes in this pull request, not the entire file. ' +
-      'Provide only very concise feedback with one feature sentence per issue. ' +
+      'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+      'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+      'Provide only very concise feedback with one issue per line reference. ' +
       'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
       'Be extremely brief but precise in your feedback. ' +
-      'For each issue, just rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+      'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
     
     let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
     
@@ -166,7 +170,7 @@ export class OpenAIService {
     }
     
     userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-      'Simply state severity (low/medium/high) and a brief fix suggestion per issue. ' +
+      'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
       'Use feature sentences only - no explanations or reasoning.';
 
     const response = await this.openai.chat.completions.create({
@@ -189,7 +193,7 @@ export class OpenAIService {
    * @param conversation Previous conversation history
    * @returns Follow-up analysis
    */
-  async makeFollowUpInquiry(
+    async makeFollowUpInquiry(
     initialAnalysis: string, 
     file: EnhancedPRFile,
     conversation: Array<{ role: 'system' | 'user' | 'assistant', content: string }>
@@ -200,6 +204,8 @@ export class OpenAIService {
       
       const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
         'Focus specifically on the changes in this pull request, not the entire file. ' +
+        'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+        'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
         'Provide only very concise feedback with one feature sentence per issue. ' +
         'Be extremely brief but precise in your feedback.';
 

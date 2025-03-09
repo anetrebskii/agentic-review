@@ -479,12 +479,53 @@ export class GitHubService {
         commentsByFile[comment.path].push(comment);
       });
       
+      // Prepare JSON output for code review results
+      const jsonReviewResults = filteredComments.map(comment => ({
+        comment: comment.body,
+        filePath: comment.path,
+        line: comment.line || null
+      }));
+      
+      // Set as GitHub Action output
+      core.setOutput('review-results', JSON.stringify(jsonReviewResults));
+      core.info('Review results set as action output "review-results"');
+      
+      // Write JSON results to a file in the repo (if we have write access)
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const reviewResultsDir = path.join(process.cwd(), '.github', 'code-review-results');
+        
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(reviewResultsDir)) {
+          fs.mkdirSync(reviewResultsDir, { recursive: true });
+        }
+        
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const jsonFilePath = path.join(reviewResultsDir, `review-${prNumber}-${timestamp}.json`);
+        
+        // Write JSON file
+        fs.writeFileSync(jsonFilePath, JSON.stringify(jsonReviewResults, null, 2));
+        core.info(`Review results saved as JSON to ${jsonFilePath}`);
+        
+        // Add information about the JSON file to the PR comment
+        combinedBody += `Review results are also available as [JSON](${jsonFilePath}).\n\n`;
+      } catch (error) {
+        core.warning(`Error writing JSON results file: ${error instanceof Error ? error.message : String(error)}`);
+        core.warning('Continuing with PR comment only.');
+      }
+      
       // Add file-specific comments to the combined body
       Object.entries(commentsByFile).forEach(([filename, fileComments]) => {
         combinedBody += `## File: ${filename}\n\n`;
         
         fileComments.forEach(comment => {
-          combinedBody += comment.body + '\n\n';
+          // Include line number information if available
+          if (comment.line) {
+            combinedBody += `**Line ${comment.line}**: ${comment.body}\n\n`;
+          } else {
+            combinedBody += `${comment.body}\n\n`;
+          }
         });
       });
       
@@ -497,6 +538,7 @@ export class GitHubService {
       });
       
       core.info(`Added a single combined review comment to PR #${prNumber} with feedback for ${Object.keys(commentsByFile).length} files`);
+      core.info(`Total review comments: ${filteredComments.length}`);
     } catch (error) {
       core.error(`Error adding review comment: ${error instanceof Error ? error.message : String(error)}`);
       throw error;

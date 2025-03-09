@@ -280,30 +280,65 @@ class CodeReviewService {
      * @returns Extracted comments
      */
     parseReviewFeedback(file, initialAnalysis, followUpAnalysis) {
-        // Since we're consolidating all comments into a single PR comment,
-        // we'll just create a well-formatted single comment for each file
-        let commentBody = '';
-        // Extract useful information from the file
-        const changeInfo = `**Changes:** ${file.additions || 0} additions, ${file.deletions || 0} deletions`;
-        // Add initial analysis
+        const comments = [];
+        // Process initial analysis to extract line-specific comments
         if (initialAnalysis && initialAnalysis.trim() !== '') {
-            commentBody += `### Initial Analysis\n\n${initialAnalysis}\n\n`;
+            // Look for lines that indicate issues with specific line numbers
+            // Common formats: "Line X:", "Line X -", "At line X:", etc.
+            const lineIssueRegex = /(?:Line|At line|In line|On line)\s+(\d+)(?:\s*[-:]\s*|\s*[:,]\s*|\s+)(.*)/gi;
+            let match;
+            // Extract line-specific comments from initial analysis
+            while ((match = lineIssueRegex.exec(initialAnalysis)) !== null) {
+                const lineNumber = parseInt(match[1], 10);
+                const issueComment = match[2].trim();
+                if (issueComment) {
+                    comments.push({
+                        path: file.filename,
+                        line: lineNumber,
+                        body: issueComment,
+                        confidence: 100
+                    });
+                }
+            }
+            // If no line-specific comments were found, add the entire initial analysis as a general comment
+            if (comments.length === 0) {
+                comments.push({
+                    path: file.filename,
+                    body: initialAnalysis,
+                    confidence: 100
+                });
+            }
         }
-        // Add follow-up analysis if it contains actual content
+        // Process follow-up analysis if it contains content
         if (followUpAnalysis &&
             followUpAnalysis.trim() !== '' &&
             followUpAnalysis !== 'No further inquiries.' &&
             followUpAnalysis !== 'No additional issues identified.') {
-            commentBody += `### Additional Feedback\n\n${followUpAnalysis}\n\n`;
+            // Extract line-specific comments from follow-up analysis
+            const lineIssueRegex = /(?:Line|At line|In line|On line)\s+(\d+)(?:\s*[-:]\s*|\s*[:,]\s*|\s+)(.*)/gi;
+            let match;
+            while ((match = lineIssueRegex.exec(followUpAnalysis)) !== null) {
+                const lineNumber = parseInt(match[1], 10);
+                const issueComment = match[2].trim();
+                if (issueComment) {
+                    comments.push({
+                        path: file.filename,
+                        line: lineNumber,
+                        body: issueComment,
+                        confidence: 100
+                    });
+                }
+            }
+            // If no line-specific comments were found in follow-up, add it as a general comment
+            if (!lineIssueRegex.test(followUpAnalysis)) {
+                comments.push({
+                    path: file.filename,
+                    body: followUpAnalysis,
+                    confidence: 100
+                });
+            }
         }
-        // Add change statistics
-        commentBody += `\n\n${changeInfo}`;
-        // Return as a single comment for this file
-        return [{
-                path: file.filename,
-                body: commentBody,
-                confidence: 100 // High confidence for the overall analysis
-            }];
+        return comments;
     }
 }
 exports.CodeReviewService = CodeReviewService;
@@ -743,11 +778,47 @@ class GitHubService {
                 }
                 commentsByFile[comment.path].push(comment);
             });
+            // Prepare JSON output for code review results
+            const jsonReviewResults = filteredComments.map(comment => ({
+                comment: comment.body,
+                filePath: comment.path,
+                line: comment.line || null
+            }));
+            // Set as GitHub Action output
+            core.setOutput('review-results', JSON.stringify(jsonReviewResults));
+            core.info('Review results set as action output "review-results"');
+            // Write JSON results to a file in the repo (if we have write access)
+            try {
+                const fs = __nccwpck_require__(9896);
+                const path = __nccwpck_require__(6928);
+                const reviewResultsDir = path.join(process.cwd(), '.github', 'code-review-results');
+                // Create directory if it doesn't exist
+                if (!fs.existsSync(reviewResultsDir)) {
+                    fs.mkdirSync(reviewResultsDir, { recursive: true });
+                }
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const jsonFilePath = path.join(reviewResultsDir, `review-${prNumber}-${timestamp}.json`);
+                // Write JSON file
+                fs.writeFileSync(jsonFilePath, JSON.stringify(jsonReviewResults, null, 2));
+                core.info(`Review results saved as JSON to ${jsonFilePath}`);
+                // Add information about the JSON file to the PR comment
+                combinedBody += `Review results are also available as [JSON](${jsonFilePath}).\n\n`;
+            }
+            catch (error) {
+                core.warning(`Error writing JSON results file: ${error instanceof Error ? error.message : String(error)}`);
+                core.warning('Continuing with PR comment only.');
+            }
             // Add file-specific comments to the combined body
             Object.entries(commentsByFile).forEach(([filename, fileComments]) => {
                 combinedBody += `## File: ${filename}\n\n`;
                 fileComments.forEach(comment => {
-                    combinedBody += comment.body + '\n\n';
+                    // Include line number information if available
+                    if (comment.line) {
+                        combinedBody += `**Line ${comment.line}**: ${comment.body}\n\n`;
+                    }
+                    else {
+                        combinedBody += `${comment.body}\n\n`;
+                    }
                 });
             });
             // Create a single issue comment instead of a review with multiple comments
@@ -758,6 +829,7 @@ class GitHubService {
                 body: combinedBody
             });
             core.info(`Added a single combined review comment to PR #${prNumber} with feedback for ${Object.keys(commentsByFile).length} files`);
+            core.info(`Total review comments: ${filteredComments.length}`);
         }
         catch (error) {
             core.error(`Error adding review comment: ${error instanceof Error ? error.message : String(error)}`);
@@ -896,9 +968,11 @@ class OpenAIService {
             }
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
-                'Provide only very concise feedback with one feature sentence per issue. ' +
+                'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+                'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+                'Provide only very concise feedback with one issue per line reference. ' +
                 'Be extremely brief but precise in your feedback. ' +
-                'For each issue, just rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+                'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
             let userPrompt = `${matchingRule.prompt}\n\n`;
             // Add the changed content focus
             userPrompt += `FOCUS ON THESE SPECIFIC CHANGES in file ${file.filename}:\n\n`;
@@ -910,7 +984,7 @@ class OpenAIService {
                 userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
             }
             userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-                'Simply state severity (low/medium/high) and a brief fix suggestion per issue. ' +
+                'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
                 'Use feature sentences only - no explanations or reasoning.';
             core.debug(`Using model: ${this.model}`);
             core.debug(`Using rule prompt for file type: ${file.filename}`);
@@ -938,10 +1012,12 @@ class OpenAIService {
     async analyzeWithGenericPrompt(file) {
         const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
             'Focus specifically on the changes in this pull request, not the entire file. ' +
-            'Provide only very concise feedback with one feature sentence per issue. ' +
+            'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+            'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
+            'Provide only very concise feedback with one issue per line reference. ' +
             'Focus on code quality, potential bugs, security issues, performance concerns, and best practices. ' +
             'Be extremely brief but precise in your feedback. ' +
-            'For each issue, just rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
+            'For each issue, rate its severity (low, medium, high) and provide a one-sentence suggested fix.';
         let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
         // Add the changed content focus
         userPrompt += `FOCUS ON THESE SPECIFIC CHANGES:\n\n`;
@@ -953,7 +1029,7 @@ class OpenAIService {
             userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
         }
         userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-            'Simply state severity (low/medium/high) and a brief fix suggestion per issue. ' +
+            'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
             'Use feature sentences only - no explanations or reasoning.';
         const response = await this.openai.chat.completions.create({
             model: this.model,
@@ -979,6 +1055,8 @@ class OpenAIService {
             const matchingRule = this.findMatchingRule(file.filename);
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
+                'For each issue, specify the exact line number using format "Line X: [your comment]". ' +
+                'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Provide only very concise feedback with one feature sentence per issue. ' +
                 'Be extremely brief but precise in your feedback.';
             // Build the conversation history

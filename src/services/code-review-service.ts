@@ -184,35 +184,74 @@ export class CodeReviewService {
     initialAnalysis: string, 
     followUpAnalysis: string
   ): CodeReviewComment[] {
-    // Since we're consolidating all comments into a single PR comment,
-    // we'll just create a well-formatted single comment for each file
+    const comments: CodeReviewComment[] = [];
     
-    let commentBody = '';
-    
-    // Extract useful information from the file
-    const changeInfo = `**Changes:** ${file.additions || 0} additions, ${file.deletions || 0} deletions`;
-    
-    // Add initial analysis
+    // Process initial analysis to extract line-specific comments
     if (initialAnalysis && initialAnalysis.trim() !== '') {
-      commentBody += `### Initial Analysis\n\n${initialAnalysis}\n\n`;
+      // Look for lines that indicate issues with specific line numbers
+      // Common formats: "Line X:", "Line X -", "At line X:", etc.
+      const lineIssueRegex = /(?:Line|At line|In line|On line)\s+(\d+)(?:\s*[-:]\s*|\s*[:,]\s*|\s+)(.*)/gi;
+      let match;
+      
+      // Extract line-specific comments from initial analysis
+      while ((match = lineIssueRegex.exec(initialAnalysis)) !== null) {
+        const lineNumber = parseInt(match[1], 10);
+        const issueComment = match[2].trim();
+        
+        if (issueComment) {
+          comments.push({
+            path: file.filename,
+            line: lineNumber,
+            body: issueComment,
+            confidence: 100
+          });
+        }
+      }
+      
+      // If no line-specific comments were found, add the entire initial analysis as a general comment
+      if (comments.length === 0) {
+        comments.push({
+          path: file.filename,
+          body: initialAnalysis,
+          confidence: 100
+        });
+      }
     }
     
-    // Add follow-up analysis if it contains actual content
+    // Process follow-up analysis if it contains content
     if (followUpAnalysis && 
         followUpAnalysis.trim() !== '' && 
         followUpAnalysis !== 'No further inquiries.' &&
         followUpAnalysis !== 'No additional issues identified.') {
-      commentBody += `### Additional Feedback\n\n${followUpAnalysis}\n\n`;
+      
+      // Extract line-specific comments from follow-up analysis
+      const lineIssueRegex = /(?:Line|At line|In line|On line)\s+(\d+)(?:\s*[-:]\s*|\s*[:,]\s*|\s+)(.*)/gi;
+      let match;
+      
+      while ((match = lineIssueRegex.exec(followUpAnalysis)) !== null) {
+        const lineNumber = parseInt(match[1], 10);
+        const issueComment = match[2].trim();
+        
+        if (issueComment) {
+          comments.push({
+            path: file.filename,
+            line: lineNumber,
+            body: issueComment,
+            confidence: 100
+          });
+        }
+      }
+      
+      // If no line-specific comments were found in follow-up, add it as a general comment
+      if (!lineIssueRegex.test(followUpAnalysis)) {
+        comments.push({
+          path: file.filename,
+          body: followUpAnalysis,
+          confidence: 100
+        });
+      }
     }
     
-    // Add change statistics
-    commentBody += `\n\n${changeInfo}`;
-    
-    // Return as a single comment for this file
-    return [{
-      path: file.filename,
-      body: commentBody,
-      confidence: 100 // High confidence for the overall analysis
-    }];
+    return comments;
   }
 } 
