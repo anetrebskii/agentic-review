@@ -78,6 +78,8 @@ export class CodeReviewService {
         const comments = await this.reviewEnhancedFile(file);
         allComments.push(...comments);
       }
+
+      core.info(`All comments: ${JSON.stringify(allComments, null, 2)}`);
       
       // Add review comments to PR
       await this.githubService.addReviewComments(prNumber, allComments);
