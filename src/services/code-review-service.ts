@@ -199,15 +199,20 @@ export class CodeReviewService {
         const issueComment = match[2].trim();
         
         if (issueComment && lineNumber > 0) {
-          // Only include comments where we can determine the exact position
-          // The exact position is the line number itself
-          comments.push({
-            path: file.filename,
-            line: lineNumber,
-            position: lineNumber, // Use exact line number as position
-            body: issueComment,
-            confidence: 100
-          });
+          // Only include comments for changed lines
+          const isChangedLine = this.isChangedLine(file, lineNumber);
+          
+          if (isChangedLine) {
+            comments.push({
+              path: file.filename,
+              line: lineNumber,
+              position: lineNumber, // Use exact line number as position
+              body: issueComment,
+              confidence: 100
+            });
+          } else {
+            core.debug(`Skipping comment for line ${lineNumber} in ${file.filename} as it's not a changed line`);
+          }
         }
       }
       
@@ -230,15 +235,20 @@ export class CodeReviewService {
         const issueComment = match[2].trim();
         
         if (issueComment && lineNumber > 0) {
-          // Only include comments where we can determine the exact position
-          // The exact position is the line number itself
-          comments.push({
-            path: file.filename,
-            line: lineNumber,
-            position: lineNumber, // Use exact line number as position
-            body: issueComment,
-            confidence: 100
-          });
+          // Only include comments for changed lines
+          const isChangedLine = this.isChangedLine(file, lineNumber);
+          
+          if (isChangedLine) {
+            comments.push({
+              path: file.filename,
+              line: lineNumber,
+              position: lineNumber, // Use exact line number as position
+              body: issueComment,
+              confidence: 100
+            });
+          } else {
+            core.debug(`Skipping comment for line ${lineNumber} in ${file.filename} as it's not a changed line`);
+          }
         }
       }
       
@@ -246,5 +256,50 @@ export class CodeReviewService {
     }
     
     return comments;
+  }
+  
+  /**
+   * Determines if a line was changed (added or modified) in the PR
+   * @param file The file with changes
+   * @param lineNumber The line number to check
+   * @returns True if the line was changed in the PR
+   */
+  private isChangedLine(file: EnhancedPRFile, lineNumber: number): boolean {
+    // If we have a change map, check if the line is in the additions
+    if (file.changeMap && file.changeMap.additions) {
+      return file.changeMap.additions.includes(lineNumber);
+    }
+    
+    // If we don't have a change map, but have patch data, we can try to infer
+    // from the patch if this line was part of the changes
+    if (file.patch) {
+      // Simple check: see if the line number appears in a hunk header
+      // This is an approximation, but it's better than nothing
+      const hunkRegex = new RegExp(`@@ -\\d+,\\d+ \\+(\\d+),\\d+ @@`);
+      const hunkMatches = file.patch.matchAll(hunkRegex);
+      
+      for (const hunkMatch of Array.from(hunkMatches)) {
+        const hunkStart = parseInt(hunkMatch[1], 10);
+        // Extract the number of lines in this hunk 
+        const hunkInfo = hunkMatch[0].match(/@@ -\d+,\d+ \+\d+,(\d+) @@/);
+        const hunkLines = hunkInfo ? parseInt(hunkInfo[1], 10) : 0;
+        
+        // Check if the line is within this hunk's range
+        if (lineNumber >= hunkStart && lineNumber < hunkStart + hunkLines) {
+          return true;
+        }
+      }
+    }
+    
+    // If we have changedContent, we can try to infer from the content
+    if (file.changedContent) {
+      // This is an approximation - check if the line number appears in the changed content
+      // Only works accurately if the changed content includes line numbers
+      return file.changedContent.includes(`${lineNumber}:`);
+    }
+    
+    // By default, assume the line was changed if we can't determine otherwise
+    // This is conservative but ensures we don't miss important comments
+    return true;
   }
 } 

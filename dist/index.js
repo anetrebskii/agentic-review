@@ -292,15 +292,20 @@ class CodeReviewService {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
                 if (issueComment && lineNumber > 0) {
-                    // Only include comments where we can determine the exact position
-                    // The exact position is the line number itself
-                    comments.push({
-                        path: file.filename,
-                        line: lineNumber,
-                        position: lineNumber, // Use exact line number as position
-                        body: issueComment,
-                        confidence: 100
-                    });
+                    // Only include comments for changed lines
+                    const isChangedLine = this.isChangedLine(file, lineNumber);
+                    if (isChangedLine) {
+                        comments.push({
+                            path: file.filename,
+                            line: lineNumber,
+                            position: lineNumber, // Use exact line number as position
+                            body: issueComment,
+                            confidence: 100
+                        });
+                    }
+                    else {
+                        core.debug(`Skipping comment for line ${lineNumber} in ${file.filename} as it's not a changed line`);
+                    }
                 }
             }
             // We no longer add general comments if no line-specific ones are found
@@ -318,20 +323,64 @@ class CodeReviewService {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
                 if (issueComment && lineNumber > 0) {
-                    // Only include comments where we can determine the exact position
-                    // The exact position is the line number itself
-                    comments.push({
-                        path: file.filename,
-                        line: lineNumber,
-                        position: lineNumber, // Use exact line number as position
-                        body: issueComment,
-                        confidence: 100
-                    });
+                    // Only include comments for changed lines
+                    const isChangedLine = this.isChangedLine(file, lineNumber);
+                    if (isChangedLine) {
+                        comments.push({
+                            path: file.filename,
+                            line: lineNumber,
+                            position: lineNumber, // Use exact line number as position
+                            body: issueComment,
+                            confidence: 100
+                        });
+                    }
+                    else {
+                        core.debug(`Skipping comment for line ${lineNumber} in ${file.filename} as it's not a changed line`);
+                    }
                 }
             }
             // We don't add general comments anymore
         }
         return comments;
+    }
+    /**
+     * Determines if a line was changed (added or modified) in the PR
+     * @param file The file with changes
+     * @param lineNumber The line number to check
+     * @returns True if the line was changed in the PR
+     */
+    isChangedLine(file, lineNumber) {
+        // If we have a change map, check if the line is in the additions
+        if (file.changeMap && file.changeMap.additions) {
+            return file.changeMap.additions.includes(lineNumber);
+        }
+        // If we don't have a change map, but have patch data, we can try to infer
+        // from the patch if this line was part of the changes
+        if (file.patch) {
+            // Simple check: see if the line number appears in a hunk header
+            // This is an approximation, but it's better than nothing
+            const hunkRegex = new RegExp(`@@ -\\d+,\\d+ \\+(\\d+),\\d+ @@`);
+            const hunkMatches = file.patch.matchAll(hunkRegex);
+            for (const hunkMatch of Array.from(hunkMatches)) {
+                const hunkStart = parseInt(hunkMatch[1], 10);
+                // Extract the number of lines in this hunk 
+                const hunkInfo = hunkMatch[0].match(/@@ -\d+,\d+ \+\d+,(\d+) @@/);
+                const hunkLines = hunkInfo ? parseInt(hunkInfo[1], 10) : 0;
+                // Check if the line is within this hunk's range
+                if (lineNumber >= hunkStart && lineNumber < hunkStart + hunkLines) {
+                    return true;
+                }
+            }
+        }
+        // If we have changedContent, we can try to infer from the content
+        if (file.changedContent) {
+            // This is an approximation - check if the line number appears in the changed content
+            // Only works accurately if the changed content includes line numbers
+            return file.changedContent.includes(`${lineNumber}:`);
+        }
+        // By default, assume the line was changed if we can't determine otherwise
+        // This is conservative but ensures we don't miss important comments
+        return true;
     }
 }
 exports.CodeReviewService = CodeReviewService;
@@ -957,10 +1006,12 @@ class OpenAIService {
             }
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
-                'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
+                'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
+                'Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
                 'The line number must correspond precisely to the line in the diff where the issue exists. ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
+                'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
                 'Provide only very concise feedback with one issue per line reference. ' +
@@ -978,8 +1029,9 @@ class OpenAIService {
             }
             userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
                 'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+                'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
                 'ONLY include comments where you can identify the exact line number. ' +
-                'If you cannot determine the exact line, do not include that comment. ' +
+                'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
                 'Ensure all issues have an exact line number reference. ' +
                 'Use feature sentences only - no explanations or reasoning.';
             core.debug(`Using model: ${this.model}`);
@@ -1008,10 +1060,12 @@ class OpenAIService {
     async analyzeWithGenericPrompt(file) {
         const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
             'Focus specifically on the changes in this pull request, not the entire file. ' +
-            'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
+            'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
+            'Only provide feedback for issues where you can identify the EXACT line number. ' +
             'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
             'The line number must correspond precisely to the line in the diff where the issue exists. ' +
             'It\'s critical that you identify the precise line number where each issue occurs. ' +
+            'Only comment on lines that have been added or modified in this PR. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
             'Your review will be used to create GitHub comments at the specified positions. ' +
             'Provide only very concise feedback with one issue per line reference. ' +
@@ -1030,8 +1084,9 @@ class OpenAIService {
         }
         userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
             'Format each issue as "Line X: [severity] [issue description] - [fix suggestion]". ' +
+            'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
             'ONLY include comments where you can identify the exact line number. ' +
-            'If you cannot determine the exact line, do not include that comment. ' +
+            'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
             'Ensure all issues have an exact line number reference. ' +
             'Use feature sentences only - no explanations or reasoning.';
         const response = await this.openai.chat.completions.create({
@@ -1058,10 +1113,12 @@ class OpenAIService {
             const matchingRule = this.findMatchingRule(file.filename);
             const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
                 'Focus specifically on the changes in this pull request, not the entire file. ' +
-                'IMPORTANT: Only provide feedback for issues where you can identify the EXACT line number. ' +
+                'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
+                'Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
                 'The line number must correspond precisely to the line in the diff where the issue exists. ' +
                 'It\'s critical that you identify the precise line number where each issue occurs. ' +
+                'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
                 'Provide only very concise feedback with one feature sentence per issue. ' +

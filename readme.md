@@ -161,14 +161,15 @@ This action creates individual GitHub code review comments directly on the relev
 
 ### Precise Line Positioning
 
-The AI review system is optimized to identify and comment on exact line positions only. This means:
+The AI review system is optimized to identify and comment on exact line positions only, focusing exclusively on lines that have been changed in the pull request. This means:
 
-- Comments are only created for issues where the exact line position can be determined
+- Comments are only created for issues in lines that have been added or modified in the PR
+- The system ignores issues in unchanged code, focusing solely on what's being modified
 - Each comment's position matches precisely to the line number where the issue occurs
 - General, file-level, or imprecise comments are filtered out
 - If a block of changes starts at line 16 but has an issue on line 17, the comment will be placed exactly on line 17
 
-This approach ensures all comments are precisely positioned in the code, making it easier to locate and fix issues.
+This approach ensures all comments are precisely positioned in the code and relevant only to the changes being reviewed, making it easier to locate and fix issues in the current PR without being distracted by pre-existing issues.
 
 For issues that span multiple lines, the AI will choose the most relevant single line for the comment placement.
 
