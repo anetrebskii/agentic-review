@@ -337,7 +337,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GitHubService = void 0;
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
-const minimatch_1 = __nccwpck_require__(5469);
 class GitHubService {
     octokit;
     config;
@@ -397,42 +396,30 @@ class GitHubService {
                 repo,
                 pull_number: prNumber,
             });
-            const files = response.data;
-            // Filter files based on rules and exclude patterns
-            const filteredFiles = files.filter((file) => {
-                // First check if file matches any exclude patterns
-                const excluded = this.config.excludeFiles.some((pattern) => (0, minimatch_1.minimatch)(file.filename, pattern));
-                if (excluded) {
-                    return false;
-                }
-                // Then check if file matches any rule's include patterns
-                const included = this.config.rules.some(rule => rule.include.some((pattern) => (0, minimatch_1.minimatch)(file.filename, pattern)));
-                return included;
-            });
-            // Enhance filtered files with additional context
-            const enhancedFiles = [];
-            for (const file of filteredFiles) {
-                try {
-                    // Get the full file content for context
-                    file.fullContent = await this.getFileContent(file.filename);
-                    // Extract just the changed content based on patch
-                    if (file.patch) {
-                        const { changedContent, changeMap } = this.extractChangedContent(file.patch, file.fullContent);
-                        file.changedContent = changedContent;
-                        file.changeMap = changeMap;
+            const filesWithContent = await Promise.all(response.data.map(async (file) => {
+                const enhancedFile = {
+                    ...file,
+                };
+                if (file.patch) {
+                    try {
+                        // Get full content for context if available
+                        if (file.status !== 'removed') {
+                            enhancedFile.fullContent = await this.getFileContent(file.filename);
+                        }
+                        const { changedContent, changeMap } = this.extractChangedContent(file.patch, enhancedFile.fullContent);
+                        enhancedFile.changedContent = changedContent;
+                        enhancedFile.changeMap = changeMap;
                     }
-                    enhancedFiles.push(file);
+                    catch (error) {
+                        core.warning(`Error processing file ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
+                    }
                 }
-                catch (error) {
-                    core.warning(`Could not enhance file ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
-                    // Still include the file even if we couldn't enhance it
-                    enhancedFiles.push(file);
-                }
-            }
-            return enhancedFiles;
+                return enhancedFile;
+            }));
+            return filesWithContent;
         }
         catch (error) {
-            core.error(`Error getting changed files: ${error instanceof Error ? error.message : String(error)}`);
+            core.error(`Error fetching PR files: ${error instanceof Error ? error.message : String(error)}`);
             throw error;
         }
     }
@@ -486,6 +473,51 @@ class GitHubService {
             changedContent: changedLines,
             changeMap
         };
+    }
+    /**
+     * Calculate the position in the diff for a given line number in a file
+     * @param patch The git patch
+     * @param lineNumber The line number in the file
+     * @returns The position in the diff or undefined if not found
+     */
+    calculatePositionFromLine(patch, lineNumber) {
+        if (!patch)
+            return undefined;
+        const lines = patch.split('\n');
+        let currentLineNumber = 0;
+        let positionInDiff = 0;
+        let foundHunk = false;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            // Handle hunk headers
+            if (line.startsWith('@@')) {
+                foundHunk = true;
+                // Parse the hunk header to get starting line numbers
+                // Format: @@ -oldStart,oldLines +newStart,newLines @@
+                const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                if (match && match[1]) {
+                    currentLineNumber = parseInt(match[1], 10); // Line numbers in patches are 1-indexed
+                }
+                // Don't reset positionInDiff - it should be continuous through the diff
+            }
+            if (foundHunk) {
+                positionInDiff++;
+                // Skip deletion lines as they don't affect file line numbers
+                if (!line.startsWith('-') || line.startsWith('---')) {
+                    // If it's an addition or context line, it exists in the new file
+                    if ((line.startsWith('+') && !line.startsWith('+++')) ||
+                        (!line.startsWith('+') && !line.startsWith('-') && !line.startsWith('@@'))) {
+                        // If this is the line we're looking for, return the position
+                        if (currentLineNumber === lineNumber) {
+                            return positionInDiff;
+                        }
+                        currentLineNumber++;
+                    }
+                }
+            }
+        }
+        // Line was not found in the diff
+        return undefined;
     }
     /**
      * Gets the file content for a specific file
@@ -578,6 +610,42 @@ class GitHubService {
                 core.info('No comments to add based on confidence threshold.');
                 return;
             }
+            // Get PR files to calculate positions for line-based comments
+            const prFiles = await this.getChangedFiles(prNumber);
+            // Prepare comments with proper position values
+            const commentsWithPositions = await Promise.all(filteredComments.map(async (comment) => {
+                // If position is already set, use it
+                if (comment.position !== undefined) {
+                    return {
+                        path: comment.path,
+                        position: comment.position,
+                        body: comment.body,
+                    };
+                }
+                // If we have a line number but no position, try to calculate position
+                if (comment.line !== undefined) {
+                    const file = prFiles.find(f => f.filename === comment.path);
+                    if (file && file.patch) {
+                        const position = this.calculatePositionFromLine(file.patch, comment.line);
+                        if (position) {
+                            return {
+                                path: comment.path,
+                                position,
+                                body: comment.body,
+                            };
+                        }
+                    }
+                }
+                // If we couldn't determine position, log a warning and skip this comment
+                core.warning(`Could not determine position for comment on ${comment.path}${comment.line ? ` line ${comment.line}` : ''}. This comment will be skipped.`);
+                return null;
+            }));
+            // Filter out comments where position couldn't be determined
+            const validComments = commentsWithPositions.filter((comment) => comment !== null);
+            if (validComments.length === 0) {
+                core.warning('No valid comments with positions to add.');
+                return;
+            }
             // Create review with comments
             await this.octokit.rest.pulls.createReview({
                 owner,
@@ -585,13 +653,9 @@ class GitHubService {
                 pull_number: prNumber,
                 commit_id: this.context.payload.pull_request?.head.sha || '',
                 event: 'COMMENT',
-                comments: filteredComments.map(comment => ({
-                    path: comment.path,
-                    line: comment.line,
-                    body: comment.body,
-                })),
+                comments: validComments,
             });
-            core.info(`Added ${filteredComments.length} review comments to PR #${prNumber}`);
+            core.info(`Added ${validComments.length} review comments to PR #${prNumber}`);
         }
         catch (error) {
             core.error(`Error adding review comments: ${error instanceof Error ? error.message : String(error)}`);
