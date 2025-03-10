@@ -1141,6 +1141,7 @@ class OpenAIService {
                 'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
                 'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
                 'ONLY include comments where you can identify the exact line number. ' +
+                'DO NOT provide similar feedback for multiple issues in the same line. ' +
                 'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
                 'Ensure all issues have an exact line number reference. ' +
                 'Use feature sentences only - no explanations or reasoning.';
