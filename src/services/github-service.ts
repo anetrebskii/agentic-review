@@ -107,8 +107,12 @@ export class GitHubService {
         pull_number: prNumber,
       });
 
+      // Filter out excluded files
+      const filteredFiles = this.filterExcludedFiles(response.data);
+      core.info(`After applying excludeFiles filter: ${filteredFiles.length} of ${response.data.length} files will be reviewed.`);
+
       const filesWithContent = await Promise.all(
-        response.data.map(async (file) => {
+        filteredFiles.map(async (file) => {
           const enhancedFile: EnhancedPRFile = {
             ...file,
           };
@@ -137,6 +141,30 @@ export class GitHubService {
       core.error(`Error fetching PR files: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+
+  /**
+   * Filter files based on exclude patterns
+   * @param files The files to filter
+   * @returns Filtered list of files
+   */
+  private filterExcludedFiles(files: PullRequestFile[]): PullRequestFile[] {
+    if (!this.config.excludeFiles || this.config.excludeFiles.length === 0) {
+      return files;
+    }
+
+    return files.filter(file => {
+      // Check if the file matches any exclude pattern
+      const isExcluded = this.config.excludeFiles.some(pattern => 
+        minimatch(file.filename, pattern)
+      );
+      
+      if (isExcluded) {
+        core.info(`Excluding file from review: ${file.filename}`);
+      }
+      
+      return !isExcluded;
+    });
   }
 
   /**

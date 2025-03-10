@@ -434,6 +434,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GitHubService = void 0;
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
+const minimatch_1 = __nccwpck_require__(5469);
 class GitHubService {
     octokit;
     config;
@@ -493,7 +494,10 @@ class GitHubService {
                 repo,
                 pull_number: prNumber,
             });
-            const filesWithContent = await Promise.all(response.data.map(async (file) => {
+            // Filter out excluded files
+            const filteredFiles = this.filterExcludedFiles(response.data);
+            core.info(`After applying excludeFiles filter: ${filteredFiles.length} of ${response.data.length} files will be reviewed.`);
+            const filesWithContent = await Promise.all(filteredFiles.map(async (file) => {
                 const enhancedFile = {
                     ...file,
                 };
@@ -519,6 +523,24 @@ class GitHubService {
             core.error(`Error fetching PR files: ${error instanceof Error ? error.message : String(error)}`);
             throw error;
         }
+    }
+    /**
+     * Filter files based on exclude patterns
+     * @param files The files to filter
+     * @returns Filtered list of files
+     */
+    filterExcludedFiles(files) {
+        if (!this.config.excludeFiles || this.config.excludeFiles.length === 0) {
+            return files;
+        }
+        return files.filter(file => {
+            // Check if the file matches any exclude pattern
+            const isExcluded = this.config.excludeFiles.some(pattern => (0, minimatch_1.minimatch)(file.filename, pattern));
+            if (isExcluded) {
+                core.info(`Excluding file from review: ${file.filename}`);
+            }
+            return !isExcluded;
+        });
     }
     /**
      * Extract the changed content from a patch
