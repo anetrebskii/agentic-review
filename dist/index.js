@@ -1004,12 +1004,12 @@ class OpenAIService {
             apiKey: apiKey
         });
         this.config = config;
-        // Use inputs from GitHub Action or default values
-        this.model = core.getInput('model') || 'gpt-4-turbo';
-        this.commentThreshold = parseInt(core.getInput('comment-threshold') || '50', 10);
+        // Set default values
+        this.model = 'gpt-4-turbo';
+        this.commentThreshold = 50;
         this.maxTokens = 4096;
         this.temperature = 0.7;
-        // For backward compatibility - check if config has legacy model properties
+        // Check if config has model properties and use them
         this.migrateLegacyConfig(config);
     }
     /**
@@ -1017,13 +1017,11 @@ class OpenAIService {
      * @param config The configuration object
      */
     migrateLegacyConfig(config) {
-        // Check if the config has legacy model properties
+        // Check if the config has model properties
         if ('model' in config && typeof config.model === 'string') {
-            core.info('Detected legacy model configuration. Using model from config file.');
             this.model = config.model;
         }
         if ('commentThreshold' in config && typeof config.commentThreshold === 'number') {
-            core.info('Detected legacy commentThreshold configuration. Using threshold from config file.');
             this.commentThreshold = config.commentThreshold;
         }
         if ('maxTokens' in config && typeof config.maxTokens === 'number') {
@@ -1310,7 +1308,7 @@ const default_config_1 = __nccwpck_require__(1797);
  */
 async function loadConfig() {
     try {
-        const configPath = core.getInput('config-path') || '.github/code-review-config.yml';
+        const configPath = 'agentic-review.yml';
         // Check if the file exists
         if (!fs.existsSync(configPath)) {
             core.info(`Config file not found at ${configPath}, using default configuration.`);

@@ -23,13 +23,13 @@ export class OpenAIService {
     });
     this.config = config;
     
-    // Use inputs from GitHub Action or default values
-    this.model = core.getInput('model') || 'gpt-4-turbo';
-    this.commentThreshold = parseInt(core.getInput('comment-threshold') || '50', 10);
+    // Set default values
+    this.model = 'gpt-4-turbo';
+    this.commentThreshold = 50;
     this.maxTokens = 4096;
     this.temperature = 0.7;
     
-    // For backward compatibility - check if config has legacy model properties
+    // Check if config has model properties and use them
     this.migrateLegacyConfig(config);
   }
   
@@ -38,14 +38,12 @@ export class OpenAIService {
    * @param config The configuration object
    */
   private migrateLegacyConfig(config: any): void {
-    // Check if the config has legacy model properties
+    // Check if the config has model properties
     if ('model' in config && typeof config.model === 'string') {
-      core.info('Detected legacy model configuration. Using model from config file.');
       this.model = config.model;
     }
     
     if ('commentThreshold' in config && typeof config.commentThreshold === 'number') {
-      core.info('Detected legacy commentThreshold configuration. Using threshold from config file.');
       this.commentThreshold = config.commentThreshold;
     }
     

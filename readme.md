@@ -42,15 +42,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          # Optional parameters:
-          # config-path: '.github/code-review-config.yml'
-          # model: 'gpt-4-turbo'
-          # comment-threshold: '50'
 ```
 
 ## Configuration
 
-Create a configuration file at `.github/code-review-config.yml` (or specify a custom path using the `config-path` parameter):
+Create a configuration file at the root of your repository named `agentic-review.yml`:
 
 ```yaml
 # AI Code Review Configuration
@@ -63,6 +59,12 @@ excludeFiles:
   - '**/dist/**'
   - '**/*.test.ts'
   # Add more patterns as needed
+
+# AI model settings
+model: 'gpt-4-turbo'
+commentThreshold: 50
+maxTokens: 4096
+temperature: 0.7
 
 # Review rules - Each rule specifies what files to include and what to look for
 rules:
@@ -89,9 +91,11 @@ Each rule in the configuration defines:
 
 The action will automatically match files against these rules and use the appropriate prompt for each file type, providing specialized review feedback based on the language or technology. By focusing specifically on code changes (rather than entire files), the reviews are more relevant and actionable.
 
-You can configure the model settings using the GitHub Action inputs:
+You can configure the model settings directly in the config file:
 - `model`: OpenAI model to use (default: gpt-4-turbo)
-- `comment-threshold`: Minimum confidence threshold for posting comments (default: 50)
+- `commentThreshold`: Minimum confidence threshold for posting comments (default: 50)
+- `maxTokens`: Maximum tokens to use in API requests (default: 4096)
+- `temperature`: Temperature setting for the AI model (default: 0.7)
 
 A sample configuration file is provided in the repository (`sample-config.yml`).
 

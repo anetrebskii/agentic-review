@@ -10,7 +10,7 @@ import { defaultConfig, CodeReviewConfig } from '../config/default-config';
  */
 export async function loadConfig(): Promise<CodeReviewConfig> {
   try {
-    const configPath = core.getInput('config-path') || '.github/code-review-config.yml';
+    const configPath = 'agentic-review.yml';
     
     // Check if the file exists
     if (!fs.existsSync(configPath)) {

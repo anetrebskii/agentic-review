@@ -12,18 +12,6 @@ inputs:
   openai-api-key:
     description: 'OpenAI API key for using ChatGPT'
     required: true
-  config-path:
-    description: 'Path to the configuration file'
-    required: false
-    default: '.github/code-review-config.yml'
-  model:
-    description: 'OpenAI model to use'
-    required: false
-    default: 'gpt-4-turbo'
-  comment-threshold:
-    description: 'Minimum confidence threshold for posting comments (0-100)'
-    required: false
-    default: '50'
 
 outputs:
   review-results:

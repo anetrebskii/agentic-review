@@ -2,6 +2,12 @@
 # This action reviews only the code changes in pull requests,
 # but also provides file context for better analysis
 
+# AI model settings
+model: 'gpt-4-turbo'
+commentThreshold: 50
+maxTokens: 4096
+temperature: 0.7
+
 # Global excludes - These files will always be excluded
 excludeFiles:
   - '**/node_modules/**'
