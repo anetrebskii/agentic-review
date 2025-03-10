@@ -538,9 +538,16 @@ class GitHubService {
             const isExcluded = this.config.excludeFiles.some(pattern => {
                 // Clean pattern: trim whitespace and remove YAML list marker if present
                 const cleanPattern = pattern.trim().replace(/^-\s*/, '');
+                // Set up minimatch options to handle dotfiles and ensure consistent matching
+                const options = {
+                    dot: true, // Match dotfiles (files starting with .)
+                    nocase: false, // Case sensitive matching
+                    matchBase: true, // Match basename of file if pattern has no slashes
+                    noglobstar: false, // Support ** for matching across directories
+                };
                 // For debugging
                 core.info(`Checking if file ${file.filename} matches pattern: ${cleanPattern}`);
-                const matches = (0, minimatch_1.minimatch)(file.filename, cleanPattern);
+                const matches = (0, minimatch_1.minimatch)(file.filename, cleanPattern, options);
                 if (matches) {
                     core.info(`Match found: ${file.filename} matches ${cleanPattern}`);
                 }

@@ -60,6 +60,7 @@ excludeFiles:
   - '**/*.test.ts'
   - '**/*.yml'
   - '**/*.yaml'
+  - '.github/**/*.yml'  # Specifically exclude GitHub workflow files
   # Add more patterns as needed
 
 # AI model settings
@@ -93,7 +94,11 @@ Each rule in the configuration defines:
 
 The action will automatically match files against these rules and use the appropriate prompt for each file type, providing specialized review feedback based on the language or technology. By focusing specifically on code changes (rather than entire files), the reviews are more relevant and actionable.
 
-> **Important Note on excludeFiles**: Make sure each pattern in the `excludeFiles` array is a simple glob pattern string. Do not include YAML list markers or indentation as part of the pattern itself. For example, use `- '**/*.yml'` not `- - '**/*.yml'` or with extra spaces.
+> **Important Notes on excludeFiles**: 
+> - Make sure each pattern in the `excludeFiles` array is a simple glob pattern string. Do not include YAML list markers or indentation as part of the pattern itself.
+> - For files in hidden directories (starting with `.`), you may need to add specific patterns like `.github/**/*.yml` even if you already have `**/*.yml`.
+> - Use patterns like `**/*.extension` to match all files with a specific extension.
+> - For important directories, consider adding both a general pattern and specific ones to ensure proper matching.
 
 You can configure the model settings directly in the config file:
 - `model`: OpenAI model to use (default: gpt-4-turbo)
