@@ -58,6 +58,8 @@ excludeFiles:
   - '**/node_modules/**'
   - '**/dist/**'
   - '**/*.test.ts'
+  - '**/*.yml'
+  - '**/*.yaml'
   # Add more patterns as needed
 
 # AI model settings
@@ -90,6 +92,8 @@ Each rule in the configuration defines:
 2. **prompt**: Specific instructions for reviewing changes to this type of file
 
 The action will automatically match files against these rules and use the appropriate prompt for each file type, providing specialized review feedback based on the language or technology. By focusing specifically on code changes (rather than entire files), the reviews are more relevant and actionable.
+
+> **Important Note on excludeFiles**: Make sure each pattern in the `excludeFiles` array is a simple glob pattern string. Do not include YAML list markers or indentation as part of the pattern itself. For example, use `- '**/*.yml'` not `- - '**/*.yml'` or with extra spaces.
 
 You can configure the model settings directly in the config file:
 - `model`: OpenAI model to use (default: gpt-4-turbo)

@@ -535,7 +535,17 @@ class GitHubService {
         }
         return files.filter(file => {
             // Check if the file matches any exclude pattern
-            const isExcluded = this.config.excludeFiles.some(pattern => (0, minimatch_1.minimatch)(file.filename, pattern));
+            const isExcluded = this.config.excludeFiles.some(pattern => {
+                // Clean pattern: trim whitespace and remove YAML list marker if present
+                const cleanPattern = pattern.trim().replace(/^-\s*/, '');
+                // For debugging
+                core.info(`Checking if file ${file.filename} matches pattern: ${cleanPattern}`);
+                const matches = (0, minimatch_1.minimatch)(file.filename, cleanPattern);
+                if (matches) {
+                    core.info(`Match found: ${file.filename} matches ${cleanPattern}`);
+                }
+                return matches;
+            });
             if (isExcluded) {
                 core.info(`Excluding file from review: ${file.filename}`);
             }
@@ -1351,10 +1361,16 @@ async function loadConfig() {
                 // Include default rules that don't overlap with user rules
                 ...(default_config_1.defaultConfig.rules.filter(defaultRule => !(userConfig.rules || []).some(userRule => JSON.stringify(userRule.include.sort()) === JSON.stringify(defaultRule.include.sort()))))
             ],
-            // Include all exclude filters from both configs
+            // Include all exclude filters from both configs and clean patterns
             excludeFiles: [
-                ...(userConfig.excludeFiles || []),
-                ...default_config_1.defaultConfig.excludeFiles.filter(pattern => !(userConfig.excludeFiles || []).includes(pattern))
+                ...(userConfig.excludeFiles || []).map(pattern => {
+                    // Clean pattern: trim whitespace and remove YAML list marker if present
+                    return typeof pattern === 'string' ? pattern.trim().replace(/^-\s*/, '') : pattern;
+                }),
+                ...default_config_1.defaultConfig.excludeFiles.filter(pattern => !(userConfig.excludeFiles || []).includes(pattern)).map(pattern => {
+                    // Clean pattern: trim whitespace and remove YAML list marker if present
+                    return typeof pattern === 'string' ? pattern.trim().replace(/^-\s*/, '') : pattern;
+                })
             ]
         };
         return mergedConfig;

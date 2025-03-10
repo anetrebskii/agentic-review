@@ -155,9 +155,20 @@ export class GitHubService {
 
     return files.filter(file => {
       // Check if the file matches any exclude pattern
-      const isExcluded = this.config.excludeFiles.some(pattern => 
-        minimatch(file.filename, pattern)
-      );
+      const isExcluded = this.config.excludeFiles.some(pattern => {
+        // Clean pattern: trim whitespace and remove YAML list marker if present
+        const cleanPattern = pattern.trim().replace(/^-\s*/, '');
+        
+        // For debugging
+        core.info(`Checking if file ${file.filename} matches pattern: ${cleanPattern}`);
+        
+        const matches = minimatch(file.filename, cleanPattern);
+        if (matches) {
+          core.info(`Match found: ${file.filename} matches ${cleanPattern}`);
+        }
+        
+        return matches;
+      });
       
       if (isExcluded) {
         core.info(`Excluding file from review: ${file.filename}`);

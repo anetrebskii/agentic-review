@@ -16,6 +16,8 @@ excludeFiles:
   - '**/*.min.js'
   - '**/*.test.ts'
   - '**/*.spec.ts'
+  - '**/*.yml'
+  - '**/*.yaml'
 
 # Review rules - Each rule specifies what files to include and what to look for
 # Each prompt should focus on reviewing specific CHANGES rather than entire files

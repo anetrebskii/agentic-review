@@ -38,12 +38,18 @@ export async function loadConfig(): Promise<CodeReviewConfig> {
           )
         ))
       ],
-      // Include all exclude filters from both configs
+      // Include all exclude filters from both configs and clean patterns
       excludeFiles: [
-        ...(userConfig.excludeFiles || []),
+        ...(userConfig.excludeFiles || []).map(pattern => {
+          // Clean pattern: trim whitespace and remove YAML list marker if present
+          return typeof pattern === 'string' ? pattern.trim().replace(/^-\s*/, '') : pattern;
+        }),
         ...defaultConfig.excludeFiles.filter(pattern => 
           !(userConfig.excludeFiles || []).includes(pattern)
-        )
+        ).map(pattern => {
+          // Clean pattern: trim whitespace and remove YAML list marker if present
+          return typeof pattern === 'string' ? pattern.trim().replace(/^-\s*/, '') : pattern;
+        })
       ]
     };
 
