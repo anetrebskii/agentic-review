@@ -1198,8 +1198,8 @@ class OpenAIService {
                 core.warning(`No matching review rule found for ${file.filename}. Using generic prompt.`);
                 return this.analyzeWithGenericPrompt(file);
             }
-            const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
-                'Focus specifically on the changes in this pull request, not the entire file. ' +
+            const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
+                'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
                 'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
                 'Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
@@ -1210,13 +1210,14 @@ class OpenAIService {
                 'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
-                'Provide only very concise feedback with one feature sentence per issue. ' +
-                'Be extremely brief but precise in your feedback. ' +
+                'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
+                'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
+                'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
                 'For each issue, use this severity format: ' +
-                '🔴 **High**: for critical issues, bugs, or security concerns ' +
-                '🟠 **Medium**: for code quality issues, performance concerns ' +
-                '🟡 **Low**: for style, minor improvements, or suggestions ' +
-                'After the severity, provide a one-sentence suggested fix.';
+                '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
+                '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
+                '🟡 **Low**: for minor improvements or optimization suggestions ' +
+                'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
             let userPrompt = `${matchingRule.prompt}\n\n`;
             // Add the changed content focus
             userPrompt += `FOCUS ON THESE SPECIFIC CHANGES in file ${file.filename}:\n\n`;
@@ -1264,8 +1265,8 @@ class OpenAIService {
      * @returns Analysis results from the AI
      */
     async analyzeWithGenericPrompt(file) {
-        const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
-            'Focus specifically on the changes in this pull request, not the entire file. ' +
+        const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
+            'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
             'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
             'Only provide feedback for issues where you can identify the EXACT line number. ' +
             'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
@@ -1276,13 +1277,14 @@ class OpenAIService {
             'Only comment on lines that have been added or modified in this PR. ' +
             'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
             'Your review will be used to create GitHub comments at the specified positions. ' +
-            'Provide only very concise feedback with one feature sentence per issue. ' +
-            'Be extremely brief but precise in your feedback. ' +
+            'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
+            'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
+            'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
             'For each issue, use this severity format: ' +
-            '🔴 **High**: for critical issues, bugs, or security concerns ' +
-            '🟠 **Medium**: for code quality issues, performance concerns ' +
-            '🟡 **Low**: for style, minor improvements, or suggestions ' +
-            'After the severity, provide a one-sentence suggested fix.';
+            '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
+            '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
+            '🟡 **Low**: for minor improvements or optimization suggestions ' +
+            'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
         let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
         // Add the changed content focus
         userPrompt += `FOCUS ON THESE SPECIFIC CHANGES:\n\n`;
@@ -1327,8 +1329,8 @@ class OpenAIService {
         try {
             // Find the matching rule for this file
             const matchingRule = this.findMatchingRule(file.filename);
-            const systemPrompt = 'You are an expert code reviewer with extensive experience in software development. ' +
-                'Focus specifically on the changes in this pull request, not the entire file. ' +
+            const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
+                'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
                 'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
                 'Only provide feedback for issues where you can identify the EXACT line number. ' +
                 'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
@@ -1339,13 +1341,14 @@ class OpenAIService {
                 'Only comment on lines that have been added or modified in this PR. ' +
                 'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
                 'Your review will be used to create GitHub comments at the specified positions. ' +
-                'Provide only very concise feedback with one feature sentence per issue. ' +
-                'Be extremely brief but precise in your feedback. ' +
+                'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
+                'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
+                'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
                 'For each issue, use this severity format: ' +
-                '🔴 **High**: for critical issues, bugs, or security concerns ' +
-                '🟠 **Medium**: for code quality issues, performance concerns ' +
-                '🟡 **Low**: for style, minor improvements, or suggestions ' +
-                'After the severity, provide a one-sentence suggested fix.';
+                '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
+                '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
+                '🟡 **Low**: for minor improvements or optimization suggestions ' +
+                'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
             // Build the conversation history
             const messages = [
                 { role: 'system', content: systemPrompt },
