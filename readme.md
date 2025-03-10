@@ -7,6 +7,7 @@ A GitHub Action for AI-assisted code reviews using ChatGPT or other AI models. T
 - **ChatGPT Integration**: Use ChatGPT to review your code through the OpenAI API
 - **Focus on Changes**: Reviews only the changed code in PRs while providing full file context for better analysis
 - **Line-Specific Comments**: Creates individual review comments directly on the relevant code lines
+- **Incremental Reviews**: Only reviews code that has changed since the last review to avoid duplicate feedback
 - **JSON Output Format**: Creates structured JSON with comments, file paths, and line numbers for programmatic processing
 - **GitHub Action Output**: Provides review results as action output for further workflow automation
 - **Configurable Settings**: Customize file filters and review prompts via configuration file
@@ -107,6 +108,22 @@ You can configure the model settings directly in the config file:
 - `temperature`: Temperature setting for the AI model (default: 0.7)
 
 A sample configuration file is provided in the repository (`sample-config.yml`).
+
+## Incremental Code Reviews
+
+This action implements incremental code reviews to avoid reviewing the same code changes multiple times:
+
+- When the action runs, it looks for the most recent review comments from previous runs
+- It checks the timestamp of the last review and only reviews files that have been modified since that time
+- Files that haven't changed since the last review are automatically skipped
+- This ensures that developers only receive feedback on new or modified code
+
+Each review comment is timestamped to track when it was created. The action uses GitHub's API to:
+1. Find the most recent AI Code Review comments
+2. Compare the timestamp with the commit history of each file
+3. Only process files that have been modified after the last review
+
+This approach significantly improves the review experience by reducing duplicate feedback while ensuring that all new changes receive proper attention.
 
 ## Using the JSON Output
 

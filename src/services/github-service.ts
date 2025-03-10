@@ -107,9 +107,34 @@ export class GitHubService {
         pull_number: prNumber,
       });
 
+      // Get the timestamp of the last review
+      const lastReviewTimestamp = await this.getLastReviewTimestamp(prNumber);
+      core.info(`Last review was performed at: ${lastReviewTimestamp ? new Date(lastReviewTimestamp).toISOString() : 'Never'}`);
+
+      // Filter out files that haven't changed since the last review
+      let filesToReview = response.data;
+      if (lastReviewTimestamp) {
+        // Get commit dates for files 
+        const fileCommitDates = await this.getFileCommitDates(prNumber);
+        
+        // Only include files modified after the last review
+        filesToReview = response.data.filter(file => {
+          const lastModified = fileCommitDates[file.filename];
+          const isModifiedAfterLastReview = !lastModified || lastModified > lastReviewTimestamp;
+          
+          if (!isModifiedAfterLastReview) {
+            core.info(`Skipping file ${file.filename} - not modified since last review`);
+          }
+          
+          return isModifiedAfterLastReview;
+        });
+        
+        core.info(`After filtering by last review time: ${filesToReview.length} of ${response.data.length} files will be reviewed.`);
+      }
+
       // Filter out excluded files
-      const filteredFiles = this.filterExcludedFiles(response.data);
-      core.info(`After applying excludeFiles filter: ${filteredFiles.length} of ${response.data.length} files will be reviewed.`);
+      const filteredFiles = this.filterExcludedFiles(filesToReview);
+      core.info(`After applying excludeFiles filter: ${filteredFiles.length} of ${filesToReview.length} files will be reviewed.`);
 
       const filesWithContent = await Promise.all(
         filteredFiles.map(async (file) => {
@@ -140,6 +165,91 @@ export class GitHubService {
     } catch (error) {
       core.error(`Error fetching PR files: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
+    }
+  }
+
+  /**
+   * Gets the timestamp of the last code review for a pull request
+   * @param prNumber Pull request number
+   * @returns Timestamp of the last review or undefined if no previous review
+   */
+  private async getLastReviewTimestamp(prNumber: number): Promise<number | undefined> {
+    try {
+      const { owner, repo } = this.context.repo;
+      
+      // Get all review comments for the PR
+      const reviewCommentsResponse = await this.octokit.rest.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+      });
+      
+      // Find all comments made by the GitHub Actions bot (our review comments)
+      const botReviewComments = reviewCommentsResponse.data.filter(comment => 
+        comment.user?.login === 'github-actions[bot]' &&
+        comment.body.includes('AI Code Review')
+      );
+      
+      if (botReviewComments.length === 0) {
+        return undefined;
+      }
+      
+      // Get the timestamp of the most recent review comment
+      const lastReviewComment = botReviewComments.reduce((latest, comment) => {
+        const commentDate = new Date(comment.created_at).getTime();
+        return commentDate > latest ? commentDate : latest;
+      }, 0);
+      
+      return lastReviewComment;
+    } catch (error) {
+      core.warning(`Error getting last review timestamp: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined; // If we can't determine the last review time, review all files
+    }
+  }
+  
+  /**
+   * Gets the last commit date for each file in the PR
+   * @param prNumber Pull request number
+   * @returns Map of filenames to timestamp of last commit
+   */
+  private async getFileCommitDates(prNumber: number): Promise<Record<string, number>> {
+    try {
+      const { owner, repo } = this.context.repo;
+      const fileCommitDates: Record<string, number> = {};
+      
+      // Get all commits in the PR
+      const commitsResponse = await this.octokit.rest.pulls.listCommits({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+      });
+      
+      // Process commits from newest to oldest
+      for (const commit of commitsResponse.data.reverse()) {
+        const commitDate = new Date(commit.commit.committer?.date || commit.commit.author?.date || '').getTime();
+        
+        // Get the files changed in this commit
+        const commitFilesResponse = await this.octokit.rest.repos.getCommit({
+          owner,
+          repo,
+          ref: commit.sha,
+        });
+        
+        // Update the last modified date for each file
+        for (const file of commitFilesResponse.data.files || []) {
+          // Only update if this is the most recent change to the file
+          if (!fileCommitDates[file.filename] || commitDate > fileCommitDates[file.filename]) {
+            fileCommitDates[file.filename] = commitDate;
+          }
+        }
+      }
+      
+      return fileCommitDates;
+    } catch (error) {
+      core.warning(`Error getting file commit dates: ${error instanceof Error ? error.message : String(error)}`);
+      return {}; // If we can't determine the file commit dates, review all files
     }
   }
 
@@ -590,14 +700,18 @@ export class GitHubService {
       // Create individual review comments for each issue
       // Start a new review
       const reviewComments = [];
+      const reviewTimestamp = new Date().toISOString();
       
       for (const comment of processedComments) {
         try {
           if (comment.position !== undefined && comment.position !== null) {
+            // Add a footer to identify this as an AI Code Review comment and include timestamp
+            const enhancedBody = `${comment.body}\n\n---\n*AI Code Review at ${reviewTimestamp}*`;
+            
             reviewComments.push({
               path: comment.path,
               position: comment.position,
-              body: comment.body
+              body: enhancedBody
             });
           } else {
             core.warning(`Skipping comment for ${comment.path} with invalid position`);
