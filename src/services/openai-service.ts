@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import OpenAI from 'openai';
 import { CodeReviewConfig, ReviewRule } from '../config/default-config';
 import { minimatch } from 'minimatch';
-import { EnhancedPRFile } from './github-service';
+import { EnhancedPRFile, FileCodeReviewComment } from './github-service';
 
 export class OpenAIService {
   private openai: OpenAI;
@@ -73,8 +73,8 @@ export class OpenAIService {
    * @param filename The filename to match against rules
    * @returns The matched rule or undefined if no rule matches
    */
-  private findMatchingRule(filename: string): ReviewRule | undefined {
-    return this.config.rules.find(rule => {
+  private findMatchingRules(filename: string): ReviewRule[] {
+    return this.config.rules.filter(rule => {
       return rule.include.some(pattern => minimatch(filename, pattern));
     });
   }
@@ -82,37 +82,34 @@ export class OpenAIService {
   /**
    * Analyzes code changes using the OpenAI API with context
    * @param file The enhanced PR file with changes and context
-   * @param additionalPrompts Additional prompts to include in the analysis
-   * @returns Analysis results from the AI
+   * @returns Analysis results from the AI as JSON string
    */
-  async analyzeCodeChanges(file: EnhancedPRFile, additionalPrompts?: string): Promise<string> {
+  async analyzeCodeChanges(file: EnhancedPRFile): Promise<FileCodeReviewComment[]> {
     try {
       // Find the matching rule for this file
-      const matchingRule = this.findMatchingRule(file.filename);
+      const matchingRules = this.findMatchingRules(file.filename);
       
-      if (!matchingRule && !additionalPrompts) {
-        core.warning(`No matching review rule found for ${file.filename}. Using generic prompt.`);
-        return this.analyzeWithGenericPrompt(file);
-      }
-
       const systemPrompt = `
       You are a senior developer with deep expertise in software architecture and business logic implementation who are reviewing a pull request for a software project. 
       Provide comments only for issues in CHANGED lines of code.
-      For each issue, you MUST specify the exact line number using format "Line X: [your comment]".       
-      The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;").      
-      For each issue, use this severity format:
-      '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
-      '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
-      '🟡 **Low**: for minor improvements or optimization suggestions ' +
-      'After the severity, provide a suggested fix that demonstrates senior-level problem-solving.';
+      For each issue, include the exact line number where the issue occurs in the startLine and endLine fields.
+      Make the comment field markdown formatted and include a one-sentence suggested fix.
+      
+      Your output must be a valid JSON string in the following format:
+      {
+        "comments": [
+          {
+            "startLine": number,
+            "endLine": number,
+            "comment": "Markdown formatted comment with your review"
+          }
+        ]
+      }
       `;
       
       let userPrompt = '';
-      if (matchingRule) {
-        userPrompt += `${matchingRule.prompt}\n\n`;
-      }
-      if (additionalPrompts) {
-        userPrompt += `${additionalPrompts}\n\n`;
+      if (matchingRules.length > 0) {
+        userPrompt += `${matchingRules.map(rule => rule.prompt).join('\n\n')}\n\n`;
       }
       
       // Add the changed content focus
@@ -139,159 +136,38 @@ export class OpenAIService {
         temperature: this.temperature,
       });
 
-      return response.choices[0]?.message.content || 'No feedback provided.';
+      if (!response.choices[0]?.message.content) {
+        core.warning('No content received from OpenAI API');
+        return [];
+      }
+
+      try {
+        // Attempt to parse the response as JSON
+        const parsedResponse = JSON.parse(response.choices[0].message.content);
+        
+        // Validate the response structure
+        if (!parsedResponse || typeof parsedResponse !== 'object' || !Array.isArray(parsedResponse.comments)) {
+          core.warning('Invalid response structure from OpenAI API');
+          return [];
+        }
+
+        // Validate each comment
+        const validComments = parsedResponse.comments.filter((comment: FileCodeReviewComment) => {
+          return comment && 
+                 typeof comment.startLine === 'number' && 
+                 typeof comment.endLine === 'number' && 
+                 typeof comment.comment === 'string';
+        });
+
+        // Return the validated response
+        return validComments;
+      } catch (error) {
+        core.warning(`Failed to parse OpenAI API response: ${error instanceof Error ? error.message : String(error)}`);
+        return [];
+      }
     } catch (error) {
       core.error(`Error calling OpenAI API: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
-  }
-
-  /**
-   * Analyzes with a generic prompt when no specific rule matches
-   * @param file The enhanced PR file
-   * @returns Analysis results from the AI
-   */
-  private async analyzeWithGenericPrompt(file: EnhancedPRFile): Promise<string> {
-    const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
-      'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
-      'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
-      'Only provide feedback for issues where you can identify the EXACT line number. ' +
-      'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
-      'The line number must correspond precisely to the line in the diff where the issue exists. ' +
-      'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
-      'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' + 
-      'It\'s critical that you identify the precise line number where each issue occurs. ' +
-      'Only comment on lines that have been added or modified in this PR. ' +
-      'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
-      'Your review will be used to create GitHub comments at the specified positions. ' +
-      'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
-      'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
-      'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
-      'For each issue, use this severity format: ' +
-      '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
-      '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
-      '🟡 **Low**: for minor improvements or optimization suggestions ' +
-      'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
-    
-    let userPrompt = `Please review the following code changes in file ${file.filename}:\n\n`;
-    
-    // Add the changed content focus
-    userPrompt += `FOCUS ON THESE SPECIFIC CHANGES:\n\n`;
-    userPrompt += file.changedContent ? `\`\`\`\n${file.changedContent}\n\`\`\`\n\n` : 
-                 (file.patch ? `\`\`\`\n${file.patch}\n\`\`\`\n\n` : '');
-    
-    // Add the full file context
-    if (file.fullContent) {
-      userPrompt += `FULL FILE CONTEXT (for reference only, focus your review on the changes above):\n\n`;
-      userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
-    }
-    
-    userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-      'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
-      'For severity, use: ' +
-      '🔴 **High** for critical issues or bugs, ' +
-      '🟠 **Medium** for code quality issues, ' +
-      '🟡 **Low** for style or minor improvements. ' +
-      'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
-      'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
-      'ONLY include comments where you can identify the exact line number. ' +
-      'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
-      'Ensure all issues have an exact line number reference. ' +
-      'Use feature sentences only - no explanations or reasoning.';
-
-    const response = await this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      max_tokens: this.maxTokens,
-      temperature: this.temperature,
-    });
-
-    return response.choices[0]?.message.content || 'No feedback provided.';
-  }
-
-  /**
-   * Makes follow-up inquiries for agentic review mode, focusing on changes
-   * @param initialAnalysis Initial analysis from the AI
-   * @param file The enhanced PR file
-   * @param conversation Previous conversation history
-   * @returns Follow-up analysis
-   */
-    async makeFollowUpInquiry(
-    initialAnalysis: string, 
-    file: EnhancedPRFile,
-    conversation: Array<{ role: 'system' | 'user' | 'assistant', content: string }>
-  ): Promise<string> {
-    try {
-      // Find the matching rule for this file
-      const matchingRule = this.findMatchingRule(file.filename);
-      
-      const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
-        'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
-        'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
-        'Only provide feedback for issues where you can identify the EXACT line number. ' +
-        'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
-        'The line number must correspond precisely to the line in the diff where the issue exists. ' +
-        'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
-        'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' + 
-        'It\'s critical that you identify the precise line number where each issue occurs. ' +
-        'Only comment on lines that have been added or modified in this PR. ' +
-        'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
-        'Your review will be used to create GitHub comments at the specified positions. ' +
-        'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
-        'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
-        'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
-        'For each issue, use this severity format: ' +
-        '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
-        '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
-        '🟡 **Low**: for minor improvements or optimization suggestions ' +
-        'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
-
-      // Build the conversation history
-      const messages = [
-        { role: 'system' as const, content: systemPrompt },
-        ...conversation,
-        { 
-          role: 'user' as const, 
-          content: matchingRule 
-            ? `Based on your initial analysis of the changes to ${file.filename} and the specific review focus (${matchingRule.prompt.substring(0, 100)}...), provide only concise, one-sentence feedback for any additional issues. Use feature sentences only.` 
-            : `Based on your initial analysis of the changes to ${file.filename}, provide only concise, one-sentence feedback for any additional issues. Use feature sentences only.` 
-        }
-      ];
-
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages: messages,
-        max_tokens: this.maxTokens,
-        temperature: this.temperature,
-      });
-
-      return response.choices[0]?.message.content || 'No further inquiries.';
-    } catch (error) {
-      core.error(`Error making follow-up inquiry: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  // Keep the old methods for backward compatibility until we fully update all code
-  async analyzeCode(codeChanges: string, filename: string, context?: string): Promise<string> {
-    core.warning('analyzeCode method is deprecated, use analyzeCodeChanges instead');
-    
-    const mockFile: EnhancedPRFile = {
-      filename: filename,
-      status: 'modified',
-      additions: 0,
-      deletions: 0,
-      changes: 0,
-      patch: codeChanges,
-      blob_url: '',
-      raw_url: '',
-      contents_url: '',
-      fullContent: context
-    };
-    
-    return this.analyzeCodeChanges(mockFile);
   }
 } 

@@ -25,6 +25,12 @@ export interface CodeReviewComment {
   confidence: number;
 }
 
+export interface FileCodeReviewComment {
+  startLine: number;
+  endLine: number;
+  comment: string;
+}
+
 /**
  * Enhanced version of PullRequestFile with contextual information
  */
@@ -605,136 +611,74 @@ export class GitHubService {
       );
       
       if (filteredComments.length === 0) {
-        core.info('No comments to add - no issues with valid positions were found.');
+        core.info('No comments to add - no issues found that meet the confidence threshold.');
         return;
       }
 
-      // First, get all the file data to have the patches available
-      const fileDataMap = new Map();
+      // Get file data with patches
       const filesResponse = await this.octokit.rest.pulls.listFiles({
         owner,
         repo,
         pull_number: prNumber
       });
       
-      for (const fileData of filesResponse.data) {
-        fileDataMap.set(fileData.filename, fileData);
-      }
+      const fileDataMap = new Map(
+        filesResponse.data.map(fileData => [fileData.filename, fileData])
+      );
 
       // Process comments to add position information
-      const processedComments = [];
-      
-      for (const comment of filteredComments) {
-        try {
-          const fileData = fileDataMap.get(comment.path);
-          
-          if (!fileData || !fileData.patch) {
-            core.warning(`Could not find patch data for ${comment.path}. Skipping comment.`);
-            continue;
-          }
-          
-          if (!comment.line) {
-            core.warning(`Comment on ${comment.path} has no line number. Skipping.`);
-            continue;
-          }
-          
-          // Calculate position in the diff
-          const position = this.calculatePositionFromLine(fileData.patch, comment.line);
-          
-          if (position === undefined) {
-            core.warning(`Could not determine position for line ${comment.line} in ${comment.path}. Skipping comment.`);
-            continue;
-          }
-          
-          // Process the comment body to ensure severity formatting is preserved
-          // GitHub comments support markdown, so we can keep the formatting as-is
-          
-          processedComments.push({
-            ...comment,
-            position
-          });
-        } catch (error) {
-          core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      
-      // Prepare JSON output for code review results
-      const jsonReviewResults = processedComments.map(comment => ({
-        comment: comment.body,
-        filePath: comment.path,
-        line: comment.line || null,
-        position: comment.position || null,
-        // Extract severity level for potential sorting/filtering by other tools
-        severityLevel: this.extractSeverityLevel(comment.body)
-      }));
-      
-      // Set as GitHub Action output
-      core.setOutput('review-results', JSON.stringify(jsonReviewResults));
-      core.info('Review results set as action output "review-results"');
-      
-      // Log the processed comments for debugging
-      core.info(`Processed comments with calculated positions: ${JSON.stringify(processedComments, null, 2)}`);
-      
-      // Write JSON results to a file in the repo (if we have write access)
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const reviewResultsDir = path.join(process.cwd(), '.github', 'code-review-results');
-        
-        // Create directory if it doesn't exist
-        if (!fs.existsSync(reviewResultsDir)) {
-          fs.mkdirSync(reviewResultsDir, { recursive: true });
-        }
-        
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const jsonFilePath = path.join(reviewResultsDir, `review-${prNumber}-${timestamp}.json`);
-        
-        // Write JSON file
-        fs.writeFileSync(jsonFilePath, JSON.stringify(jsonReviewResults, null, 2));
-        core.info(`Review results saved as JSON to ${jsonFilePath}`);
-      } catch (error) {
-        core.warning(`Error writing JSON results file: ${error instanceof Error ? error.message : String(error)}`);
-        core.warning('Continuing with PR comments only.');
-      }
-      
-      // Create individual review comments for each issue
-      // Start a new review
       const reviewComments = [];
       const reviewTimestamp = new Date().toISOString();
       
-      for (const comment of processedComments) {
-        try {
-          if (comment.position !== undefined && comment.position !== null) {
-            // Add a footer to identify this as an AI Code Review comment and include timestamp
-            const enhancedBody = `${comment.body}\n\n---\n*AI Code Review at ${reviewTimestamp}*`;
-            
-            reviewComments.push({
-              path: comment.path,
-              position: comment.position,
-              body: enhancedBody
-            });
-          } else {
-            core.warning(`Skipping comment for ${comment.path} with invalid position`);
-          }
-        } catch (error) {
-          core.warning(`Error processing comment for ${comment.path}: ${error instanceof Error ? error.message : String(error)}`);
+      for (const comment of filteredComments) {
+        const fileData = fileDataMap.get(comment.path);
+        
+        // Skip if file data or patch is missing, or comment has no line number
+        if (!fileData?.patch || !comment.line) {
+          core.warning(`Skipping comment for ${comment.path}: ${!fileData?.patch ? 'No patch data' : 'No line number'}`);
+          continue;
         }
+        
+        // Calculate position in the diff
+        const position = this.calculatePositionFromLine(fileData.patch, comment.line);
+        
+        if (position === undefined) {
+          core.warning(`Skipping comment for ${comment.path}: Could not determine position for line ${comment.line}`);
+          continue;
+        }
+        
+        reviewComments.push({
+          path: comment.path,
+          position,
+          body: comment.body
+        });
       }
       
-      // Submit the review with all the collected comments
+      // Prepare output for GitHub Action
+      const jsonReviewResults = {
+        comments: filteredComments.map(comment => ({
+          startLine: comment.line || null,
+          endLine: comment.line || null,
+          comment: comment.body
+        }))
+      };
+      
+      // Set as GitHub Action output
+      core.setOutput('review-results', JSON.stringify(jsonReviewResults));
+      
+      // Submit the review with all comments
       if (reviewComments.length > 0) {
         core.info(`Submitting review with ${reviewComments.length} comments...`);
-        core.debug(`Review comments: ${JSON.stringify(reviewComments, null, 2)}`);
         
         await this.octokit.rest.pulls.createReview({
           owner,
           repo,
           pull_number: prNumber,
           comments: reviewComments,
-          event: 'COMMENT' // Could be 'APPROVE' or 'REQUEST_CHANGES' based on severity
+          event: 'COMMENT'
         });
         
-        core.info(`Added ${reviewComments.length} individual review comments to PR #${prNumber}`);
+        core.info(`Added ${reviewComments.length} review comments to PR #${prNumber}`);
       } else {
         core.warning('No valid comments with positions to submit');
       }
