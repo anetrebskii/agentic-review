@@ -1047,9 +1047,11 @@ class OpenAIService {
             const matchingRules = this.findMatchingRules(file.filename);
             const systemPrompt = `
       You are a senior developer with deep expertise in software architecture and business logic implementation who are reviewing a pull request for a software project. 
-      Provide comments only for issues in CHANGED lines of code.
-      For each issue, include the exact line number where the issue occurs in the startLine and endLine fields.
+      Provide comments only for real issues in CHANGED lines of code.
+      The comment is written should contain the real issues in the code.
+      For each issue, include the exact line number where the issue occurs in the startLine and endLine fields.      
       Make the comment field markdown formatted and include a one-sentence suggested fix.
+      The comment should contain suggested fixes in GitHub flavored markdown format if it's possible.
       
       Your output must be a valid JSON string in the following format:
       {
