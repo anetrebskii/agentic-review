@@ -186,12 +186,37 @@ class CodeReviewService {
             const allComments = [];
             for (const file of changedFiles) {
                 core.info(`Reviewing file: ${file.filename}`);
+                // Check if file should be excluded based on config
+                const shouldExclude = this.config.excludeFiles.some(pattern => {
+                    // Convert glob pattern to regex
+                    const regexPattern = pattern
+                        .replace(/\./g, '\\.')
+                        .replace(/\*/g, '.*')
+                        .replace(/\?/g, '.');
+                    return new RegExp(regexPattern).test(file.filename);
+                });
+                if (shouldExclude) {
+                    core.info(`Skipping excluded file ${file.filename} based on config patterns.`);
+                    continue;
+                }
                 // Skip files without changes to review
                 if (!file.patch && !file.changedContent) {
                     core.info(`Skipping file ${file.filename} - no changes to review.`);
                     continue;
                 }
-                const comments = await this.reviewEnhancedFile(file);
+                // Find matching rules for this file
+                const matchingRules = this.config.rules.filter(rule => {
+                    if (!rule.include)
+                        return true; // Rule applies to all files if no pattern specified
+                    return rule.include.some((pattern) => {
+                        const regexPattern = pattern
+                            .replace(/\./g, '\\.')
+                            .replace(/\*/g, '.*')
+                            .replace(/\?/g, '.');
+                        return new RegExp(regexPattern).test(file.filename);
+                    });
+                });
+                const comments = await this.reviewEnhancedFile(file, matchingRules);
                 allComments.push(...comments);
             }
             core.info(`All comments: ${JSON.stringify(allComments, null, 2)}`);
@@ -207,34 +232,28 @@ class CodeReviewService {
     /**
      * Reviews an enhanced file with changes and context
      * @param file The enhanced file to review
+     * @param matchingRules Rules that match this file
      * @returns Comments for the file
      */
-    async reviewEnhancedFile(file) {
+    async reviewEnhancedFile(file, matchingRules = []) {
         try {
             // Initial analysis using the enhanced file
             core.info(`Analyzing changes in file ${file.filename}...`);
-            const initialAnalysis = await this.openaiService.analyzeCodeChanges(file);
-            // Start conversation for agentic review
-            const conversation = [
-                { role: 'user', content: `Please review the changes to ${file.filename}` },
-                { role: 'assistant', content: initialAnalysis }
-            ];
-            // Make follow-up inquiries (agentic mode)
-            core.info(`Making follow-up inquiries for ${file.filename}...`);
-            const followUpAnalysis = await this.openaiService.makeFollowUpInquiry(initialAnalysis, file, conversation);
+            // Combine all matching rule prompts
+            const additionalPrompts = matchingRules
+                .map(rule => rule.prompt)
+                .filter(prompt => prompt)
+                .join('\n\n');
+            const initialAnalysis = await this.openaiService.analyzeCodeChanges(file, additionalPrompts);
             // Parse comments and feedback
             core.info(`Parsing review results for ${file.filename}...`);
-            const comments = this.parseReviewFeedback(file, initialAnalysis, followUpAnalysis);
+            const comments = this.parseReviewFeedback(file, initialAnalysis);
             return comments;
         }
         catch (error) {
             core.error(`Error reviewing file ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
             return [];
         }
-    }
-    // For backward compatibility
-    async reviewFile(file) {
-        return this.reviewEnhancedFile(file);
     }
     /**
      * Detects the programming language from a filename
@@ -275,7 +294,7 @@ class CodeReviewService {
      * @param followUpAnalysis Follow-up analysis from the AI
      * @returns Extracted comments
      */
-    parseReviewFeedback(file, initialAnalysis, followUpAnalysis) {
+    parseReviewFeedback(file, initialAnalysis) {
         const comments = [];
         // Process initial analysis to extract line-specific comments
         if (initialAnalysis && initialAnalysis.trim() !== '') {
@@ -285,35 +304,6 @@ class CodeReviewService {
             let match;
             // Extract line-specific comments from initial analysis
             while ((match = lineIssueRegex.exec(initialAnalysis)) !== null) {
-                const lineNumber = parseInt(match[1], 10);
-                const issueComment = match[2].trim();
-                if (issueComment && lineNumber > 0) {
-                    // Only include comments for changed lines
-                    const isChangedLine = this.isChangedLine(file, lineNumber);
-                    if (isChangedLine) {
-                        comments.push({
-                            path: file.filename,
-                            line: lineNumber,
-                            // Don't set position here - let GitHub service calculate it
-                            body: issueComment,
-                            confidence: 100
-                        });
-                    }
-                    else {
-                        core.debug(`Skipping comment for line ${lineNumber} in ${file.filename} as it's not a changed line`);
-                    }
-                }
-            }
-        }
-        // Process follow-up analysis if it contains content
-        if (followUpAnalysis &&
-            followUpAnalysis.trim() !== '' &&
-            followUpAnalysis !== 'No further inquiries.' &&
-            followUpAnalysis !== 'No additional issues identified.') {
-            // Extract line-specific comments from follow-up analysis
-            const lineIssueRegex = /(?:Line|At line|In line|On line)\s+(\d+)(?:\s*[-:]\s*|\s*[:,]\s*|\s+)(.*)/gi;
-            let match;
-            while ((match = lineIssueRegex.exec(followUpAnalysis)) !== null) {
                 const lineNumber = parseInt(match[1], 10);
                 const issueComment = match[2].trim();
                 if (issueComment && lineNumber > 0) {
@@ -1188,37 +1178,35 @@ class OpenAIService {
     /**
      * Analyzes code changes using the OpenAI API with context
      * @param file The enhanced PR file with changes and context
+     * @param additionalPrompts Additional prompts to include in the analysis
      * @returns Analysis results from the AI
      */
-    async analyzeCodeChanges(file) {
+    async analyzeCodeChanges(file, additionalPrompts) {
         try {
             // Find the matching rule for this file
             const matchingRule = this.findMatchingRule(file.filename);
-            if (!matchingRule) {
+            if (!matchingRule && !additionalPrompts) {
                 core.warning(`No matching review rule found for ${file.filename}. Using generic prompt.`);
                 return this.analyzeWithGenericPrompt(file);
             }
-            const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
-                'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
-                'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
-                'Only provide feedback for issues where you can identify the EXACT line number. ' +
-                'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
-                'The line number must correspond precisely to the line in the diff where the issue exists. ' +
-                'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
-                'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' +
-                'It\'s critical that you identify the precise line number where each issue occurs. ' +
-                'Only comment on lines that have been added or modified in this PR. ' +
-                'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
-                'Your review will be used to create GitHub comments at the specified positions. ' +
-                'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
-                'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
-                'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
-                'For each issue, use this severity format: ' +
-                '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
-                '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
-                '🟡 **Low**: for minor improvements or optimization suggestions ' +
-                'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
-            let userPrompt = `${matchingRule.prompt}\n\n`;
+            const systemPrompt = `
+      You are a senior developer with deep expertise in software architecture and business logic implementation who are reviewing a pull request for a software project. 
+      Provide comments only for issues in CHANGED lines of code.
+      For each issue, you MUST specify the exact line number using format "Line X: [your comment]".       
+      The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;").      
+      For each issue, use this severity format:
+      '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
+      '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
+      '🟡 **Low**: for minor improvements or optimization suggestions ' +
+      'After the severity, provide a suggested fix that demonstrates senior-level problem-solving.';
+      `;
+            let userPrompt = '';
+            if (matchingRule) {
+                userPrompt += `${matchingRule.prompt}\n\n`;
+            }
+            if (additionalPrompts) {
+                userPrompt += `${additionalPrompts}\n\n`;
+            }
             // Add the changed content focus
             userPrompt += `FOCUS ON THESE SPECIFIC CHANGES in file ${file.filename}:\n\n`;
             userPrompt += file.changedContent ? `\`\`\`\n${file.changedContent}\n\`\`\`\n\n` :
@@ -1228,19 +1216,6 @@ class OpenAIService {
                 userPrompt += `FULL FILE CONTEXT (for reference only, focus your review on the changes above):\n\n`;
                 userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
             }
-            userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-                'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
-                'For severity, use: ' +
-                '🔴 **High** for critical issues or bugs, ' +
-                '🟠 **Medium** for code quality issues, ' +
-                '🟡 **Low** for style or minor improvements. ' +
-                'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
-                'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
-                'ONLY include comments where you can identify the exact line number. ' +
-                'DO NOT provide similar feedback for multiple issues in the same line. ' +
-                'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
-                'Ensure all issues have an exact line number reference. ' +
-                'Use feature sentences only - no explanations or reasoning.';
             core.debug(`Using model: ${this.model}`);
             core.debug(`Using rule prompt for file type: ${file.filename}`);
             const response = await this.openai.chat.completions.create({
