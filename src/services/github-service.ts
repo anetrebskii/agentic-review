@@ -678,6 +678,9 @@ export class GitHubService {
           event: 'COMMENT'
         });
         
+        // Create a summary comment on the PR with token usage
+        await this.createSummaryComment(prNumber, reviewComments.length);
+        
         core.info(`Added ${reviewComments.length} review comments to PR #${prNumber}`);
       } else {
         core.warning('No valid comments with positions to submit');
@@ -689,6 +692,48 @@ export class GitHubService {
     }
   }
   
+  /**
+   * Creates a summary comment on the PR with the review statistics
+   * @param prNumber Pull request number
+   * @param commentCount Number of comments added
+   */
+  private async createSummaryComment(prNumber: number, commentCount: number): Promise<void> {
+    try {
+      const { owner, repo } = this.context.repo;
+      
+      // Get token usage statistics
+      const totalInputTokens = this.openaiService.getInputTokenCount();
+      const totalOutputTokens = this.openaiService.getOutputTokenCount();
+      const totalTokens = totalInputTokens + totalOutputTokens;
+      
+      // Create the summary message
+      const summaryBody = `
+## AI Code Review Summary
+
+- **Total Comments**: ${commentCount}
+- **Token Usage**:
+  - Input tokens: ${totalInputTokens}
+  - Output tokens: ${totalOutputTokens}
+  - **Total tokens**: ${totalTokens}
+
+_AI Code Review ${new Date().toISOString()}_
+      `.trim();
+      
+      // Add the summary comment to the PR
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body: summaryBody
+      });
+      
+      core.info(`Added summary comment to PR #${prNumber}`);
+    } catch (error) {
+      core.warning(`Error creating summary comment: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't fail the whole process if just the summary comment fails
+    }
+  }
+
   /**
    * Extracts the severity level from a comment body
    * @param commentBody The comment body text

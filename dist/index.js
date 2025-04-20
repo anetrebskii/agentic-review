@@ -177,7 +177,6 @@ class CodeReviewService {
             // Get changed files with context
             const changedFiles = await this.githubService.getChangedFiles(prNumber);
             core.info(`Found ${changedFiles.length} changed files to review.`);
-            core.info(`Changed files: ${JSON.stringify(changedFiles, null, 2)}`);
             if (changedFiles.length === 0) {
                 core.info('No files to review based on configuration filters.');
                 return;
@@ -197,6 +196,19 @@ class CodeReviewService {
             core.info(`All comments: ${JSON.stringify(allComments, null, 2)}`);
             // Add review comments to PR
             await this.githubService.addReviewComments(prNumber, allComments);
+            // Calculate total token usage
+            const totalInputTokens = this.openaiService.getInputTokenCount();
+            const totalOutputTokens = this.openaiService.getOutputTokenCount();
+            const totalTokens = totalInputTokens + totalOutputTokens;
+            // Output token usage statistics
+            core.info(`Token usage statistics:`);
+            core.info(`- Total input tokens: ${totalInputTokens}`);
+            core.info(`- Total output tokens: ${totalOutputTokens}`);
+            core.info(`- Total tokens: ${totalTokens}`);
+            // Set output for GitHub Actions
+            core.setOutput('total_input_tokens', totalInputTokens);
+            core.setOutput('total_output_tokens', totalOutputTokens);
+            core.setOutput('total_tokens', totalTokens);
             core.info(`Completed AI code review with ${allComments.length} comments.`);
         }
         catch (error) {
@@ -821,6 +833,8 @@ class GitHubService {
                     comments: reviewComments,
                     event: 'COMMENT'
                 });
+                // Create a summary comment on the PR with token usage
+                await this.createSummaryComment(prNumber, reviewComments.length);
                 core.info(`Added ${reviewComments.length} review comments to PR #${prNumber}`);
             }
             else {
@@ -830,6 +844,44 @@ class GitHubService {
         catch (error) {
             core.error(`Error adding review comments: ${error instanceof Error ? error.message : String(error)}`);
             throw error;
+        }
+    }
+    /**
+     * Creates a summary comment on the PR with the review statistics
+     * @param prNumber Pull request number
+     * @param commentCount Number of comments added
+     */
+    async createSummaryComment(prNumber, commentCount) {
+        try {
+            const { owner, repo } = this.context.repo;
+            // Get token usage statistics
+            const totalInputTokens = this.openaiService.getInputTokenCount();
+            const totalOutputTokens = this.openaiService.getOutputTokenCount();
+            const totalTokens = totalInputTokens + totalOutputTokens;
+            // Create the summary message
+            const summaryBody = `
+## AI Code Review Summary
+
+- **Total Comments**: ${commentCount}
+- **Token Usage**:
+  - Input tokens: ${totalInputTokens}
+  - Output tokens: ${totalOutputTokens}
+  - **Total tokens**: ${totalTokens}
+
+_AI Code Review ${new Date().toISOString()}_
+      `.trim();
+            // Add the summary comment to the PR
+            await this.octokit.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: summaryBody
+            });
+            core.info(`Added summary comment to PR #${prNumber}`);
+        }
+        catch (error) {
+            core.warning(`Error creating summary comment: ${error instanceof Error ? error.message : String(error)}`);
+            // Don't fail the whole process if just the summary comment fails
         }
     }
     /**
@@ -914,6 +966,8 @@ class OpenAIService {
     commentThreshold;
     maxTokens;
     temperature;
+    totalInputTokens = 0;
+    totalOutputTokens = 0;
     constructor(config) {
         const apiKey = core.getInput('openai-api-key');
         if (!apiKey) {
@@ -971,6 +1025,18 @@ class OpenAIService {
         });
     }
     /**
+     * Get the number of tokens used for input (prompts)
+     */
+    getInputTokenCount() {
+        return this.totalInputTokens;
+    }
+    /**
+     * Get the number of tokens used for output (AI responses)
+     */
+    getOutputTokenCount() {
+        return this.totalOutputTokens;
+    }
+    /**
      * Analyzes code changes using the OpenAI API with context
      * @param file The enhanced PR file with changes and context
      * @returns Analysis results from the AI as JSON string
@@ -1022,6 +1088,12 @@ class OpenAIService {
                 max_tokens: this.maxTokens,
                 temperature: this.temperature,
             });
+            // Track token usage
+            if (response.usage) {
+                this.totalInputTokens += response.usage.prompt_tokens;
+                this.totalOutputTokens += response.usage.completion_tokens;
+                core.debug(`Token usage for ${file.filename}: ${response.usage.prompt_tokens} input, ${response.usage.completion_tokens} output`);
+            }
             if (!response.choices[0]?.message.content) {
                 core.warning('No content received from OpenAI API');
                 return [];

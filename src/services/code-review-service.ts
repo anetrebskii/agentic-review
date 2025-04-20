@@ -49,7 +49,6 @@ export class CodeReviewService {
       // Get changed files with context
       const changedFiles = await this.githubService.getChangedFiles(prNumber);
       core.info(`Found ${changedFiles.length} changed files to review.`);
-      core.info(`Changed files: ${JSON.stringify(changedFiles, null, 2)}`);
       
       if (changedFiles.length === 0) {
         core.info('No files to review based on configuration filters.');
@@ -75,6 +74,22 @@ export class CodeReviewService {
       
       // Add review comments to PR
       await this.githubService.addReviewComments(prNumber, allComments);
+      
+      // Calculate total token usage
+      const totalInputTokens = this.openaiService.getInputTokenCount();
+      const totalOutputTokens = this.openaiService.getOutputTokenCount();
+      const totalTokens = totalInputTokens + totalOutputTokens;
+      
+      // Output token usage statistics
+      core.info(`Token usage statistics:`);
+      core.info(`- Total input tokens: ${totalInputTokens}`);
+      core.info(`- Total output tokens: ${totalOutputTokens}`);
+      core.info(`- Total tokens: ${totalTokens}`);
+      
+      // Set output for GitHub Actions
+      core.setOutput('total_input_tokens', totalInputTokens);
+      core.setOutput('total_output_tokens', totalOutputTokens);
+      core.setOutput('total_tokens', totalTokens);
       
       core.info(`Completed AI code review with ${allComments.length} comments.`);
     } catch (error) {

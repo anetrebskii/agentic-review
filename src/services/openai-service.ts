@@ -11,6 +11,8 @@ export class OpenAIService {
   private commentThreshold: number;
   private maxTokens: number;
   private temperature: number;
+  private totalInputTokens: number = 0;
+  private totalOutputTokens: number = 0;
 
   constructor(config: CodeReviewConfig) {
     const apiKey = core.getInput('openai-api-key');
@@ -80,6 +82,20 @@ export class OpenAIService {
   }
 
   /**
+   * Get the number of tokens used for input (prompts)
+   */
+  getInputTokenCount(): number {
+    return this.totalInputTokens;
+  }
+
+  /**
+   * Get the number of tokens used for output (AI responses)
+   */
+  getOutputTokenCount(): number {
+    return this.totalOutputTokens;
+  }
+
+  /**
    * Analyzes code changes using the OpenAI API with context
    * @param file The enhanced PR file with changes and context
    * @returns Analysis results from the AI as JSON string
@@ -137,6 +153,13 @@ export class OpenAIService {
         max_tokens: this.maxTokens,
         temperature: this.temperature,
       });
+
+      // Track token usage
+      if (response.usage) {
+        this.totalInputTokens += response.usage.prompt_tokens;
+        this.totalOutputTokens += response.usage.completion_tokens;
+        core.debug(`Token usage for ${file.filename}: ${response.usage.prompt_tokens} input, ${response.usage.completion_tokens} output`);
+      }
 
       if (!response.choices[0]?.message.content) {
         core.warning('No content received from OpenAI API');
