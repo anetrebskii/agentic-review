@@ -13,6 +13,8 @@ A GitHub Action for AI-assisted code reviews using ChatGPT or other AI models. T
 - **Configurable Settings**: Customize file filters and review prompts via configuration file
 - **Agentic Review Mode**: AI makes multiple calls to thoroughly assess the code
 - **Pull Request Integration**: Adds inline code review comments and updates PR status automatically
+- **Token Usage Tracking**: Monitors and reports API token consumption for cost management and optimization
+- **Summary Comment**: Adds a PR comment with total comments and token usage statistics
 
 ## Usage
 
@@ -177,7 +179,34 @@ steps:
       REVIEW_RESULTS='${{ steps.code-review.outputs.review-results }}'
       # Do something with the results (e.g., save to file, parse with jq, etc.)
       echo "$REVIEW_RESULTS" > review-results.json
+      
+      # Access token usage statistics
+      echo "Input tokens: ${{ steps.code-review.outputs.total_input_tokens }}"
+      echo "Output tokens: ${{ steps.code-review.outputs.total_output_tokens }}"
+      echo "Total tokens: ${{ steps.code-review.outputs.total_tokens }}"
 ```
+
+### Token Usage Tracking
+
+This action provides detailed token usage statistics to help you monitor and manage OpenAI API costs:
+
+- **Input Tokens**: The total number of tokens sent to the OpenAI API (prompts)
+- **Output Tokens**: The total number of tokens received from the OpenAI API (completions)
+- **Total Tokens**: The sum of input and output tokens
+
+These metrics are:
+
+1. Displayed in the action logs after the review is complete
+2. Made available as GitHub Action outputs:
+   - `total_input_tokens`
+   - `total_output_tokens`
+   - `total_tokens`
+
+This information can be useful for:
+- Monitoring costs when using the OpenAI API
+- Optimizing prompts to reduce token usage
+- Setting up cost alerts or limits in your workflows
+- Tracking token usage trends over time
 
 ### JSON Result File
 
@@ -191,6 +220,16 @@ This action creates individual GitHub code review comments directly on the relev
 - **Easier Navigation**: Jump directly to specific issues in the codebase
 - **Standard GitHub Flow**: Uses the same format as human code reviews
 - **Improved Collaboration**: Makes it easy to address and resolve specific feedback
+
+### Summary Comment
+
+In addition to line-specific comments, the action adds a summary comment to the PR with:
+
+- Total number of review comments
+- Token usage statistics (input, output, and total tokens)
+- Timestamp of the review
+
+This provides a quick overview of the review and helps track token usage for cost management.
 
 ### Comment Severity Levels
 
