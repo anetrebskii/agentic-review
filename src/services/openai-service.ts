@@ -26,7 +26,7 @@ export class OpenAIService {
     this.config = config;
     
     // Set default values
-    this.model = 'gpt-4o-mini';
+    this.model = 'gpt-4.1-mini';
     this.commentThreshold = 50;
     this.maxTokens = 4096;
     this.temperature = 0.7;
