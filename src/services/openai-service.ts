@@ -105,6 +105,8 @@ export class OpenAIService {
           }
         ]
       }
+      
+      IMPORTANT: Return ONLY the raw JSON with no markdown formatting, no code blocks, and no backticks.
       `;
       
       let userPrompt = '';
@@ -142,8 +144,14 @@ export class OpenAIService {
       }
 
       try {
+        // Clean up the response content to ensure it's valid JSON
+        let responseContent = response.choices[0].message.content || '';
+        
+        // Remove markdown code block formatting if present
+        responseContent = responseContent.replace(/```(?:json)?\n?/g, '').replace(/\n?```$/g, '').trim();
+        
         // Attempt to parse the response as JSON
-        const parsedResponse = JSON.parse(response.choices[0].message.content);
+        const parsedResponse = JSON.parse(responseContent);
         
         // Validate the response structure
         if (!parsedResponse || typeof parsedResponse !== 'object' || !Array.isArray(parsedResponse.comments)) {
