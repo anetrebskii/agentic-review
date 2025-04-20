@@ -82,40 +82,38 @@ export class OpenAIService {
   /**
    * Analyzes code changes using the OpenAI API with context
    * @param file The enhanced PR file with changes and context
+   * @param additionalPrompts Additional prompts to include in the analysis
    * @returns Analysis results from the AI
    */
-  async analyzeCodeChanges(file: EnhancedPRFile): Promise<string> {
+  async analyzeCodeChanges(file: EnhancedPRFile, additionalPrompts?: string): Promise<string> {
     try {
       // Find the matching rule for this file
       const matchingRule = this.findMatchingRule(file.filename);
       
-      if (!matchingRule) {
+      if (!matchingRule && !additionalPrompts) {
         core.warning(`No matching review rule found for ${file.filename}. Using generic prompt.`);
         return this.analyzeWithGenericPrompt(file);
       }
 
-      const systemPrompt = 'You are a senior developer with deep expertise in software architecture and business logic implementation. ' +
-        'Focus specifically on the changes in this pull request, evaluating both implementation details and broader architectural implications. ' +
-        'IMPORTANT: Only provide feedback for issues in CHANGED lines of code. Do not comment on unchanged code. ' +
-        'Only provide feedback for issues where you can identify the EXACT line number. ' +
-        'For each issue, you MUST specify the exact line number using format "Line X: [your comment]". ' +
-        'The line number must correspond precisely to the line in the diff where the issue exists. ' +
-        'The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;"). ' +
-        'Use EXACTLY these line numbers in your comments - do not modify or calculate them yourself. ' + 
-        'It\'s critical that you identify the precise line number where each issue occurs. ' +
-        'Only comment on lines that have been added or modified in this PR. ' +
-        'Even if an issue spans multiple lines, choose the most relevant single line number to reference. ' +
-        'Your review will be used to create GitHub comments at the specified positions. ' +
-        'Prioritize business logic issues, edge cases, potential bugs, and architectural concerns over stylistic issues. ' +
-        'Consider how changes might affect performance, scalability, maintainability, and error handling. ' +
-        'Be concise but insightful in your feedback, focusing on meaningful improvements. ' +
-        'For each issue, use this severity format: ' +
-        '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
-        '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
-        '🟡 **Low**: for minor improvements or optimization suggestions ' +
-        'After the severity, provide a one-sentence suggested fix that demonstrates senior-level problem-solving.';
+      const systemPrompt = `
+      You are a senior developer with deep expertise in software architecture and business logic implementation who are reviewing a pull request for a software project. 
+      Provide comments only for issues in CHANGED lines of code.
+      For each issue, you MUST specify the exact line number using format "Line X: [your comment]".       
+      The changed content includes line numbers at the beginning of each line (e.g. "42: const x = 5;").      
+      For each issue, use this severity format:
+      '🔴 **High**: for critical issues, bugs, security concerns, or significant business logic flaws ' +
+      '🟠 **Medium**: for code quality issues, potential edge cases, or architectural concerns ' +
+      '🟡 **Low**: for minor improvements or optimization suggestions ' +
+      'After the severity, provide a suggested fix that demonstrates senior-level problem-solving.';
+      `;
       
-      let userPrompt = `${matchingRule.prompt}\n\n`;
+      let userPrompt = '';
+      if (matchingRule) {
+        userPrompt += `${matchingRule.prompt}\n\n`;
+      }
+      if (additionalPrompts) {
+        userPrompt += `${additionalPrompts}\n\n`;
+      }
       
       // Add the changed content focus
       userPrompt += `FOCUS ON THESE SPECIFIC CHANGES in file ${file.filename}:\n\n`;

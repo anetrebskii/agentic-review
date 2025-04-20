@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import { CodeReviewConfig } from '../config/default-config';
+import { CodeReviewConfig, ReviewRule } from '../config/default-config';
 import { GitHubService, CodeReviewComment, EnhancedPRFile } from './github-service';
 import { OpenAIService } from './openai-service';
 
@@ -61,13 +61,40 @@ export class CodeReviewService {
       for (const file of changedFiles) {
         core.info(`Reviewing file: ${file.filename}`);
         
+        // Check if file should be excluded based on config
+        const shouldExclude = this.config.excludeFiles.some(pattern => {
+          // Convert glob pattern to regex
+          const regexPattern = pattern
+            .replace(/\./g, '\\.')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.');
+          return new RegExp(regexPattern).test(file.filename);
+        });
+
+        if (shouldExclude) {
+          core.info(`Skipping excluded file ${file.filename} based on config patterns.`);
+          continue;
+        }
+        
         // Skip files without changes to review
         if (!file.patch && !file.changedContent) {
           core.info(`Skipping file ${file.filename} - no changes to review.`);
           continue;
         }
+
+        // Find matching rules for this file
+        const matchingRules = this.config.rules.filter(rule => {
+          if (!rule.include) return true; // Rule applies to all files if no pattern specified
+          return rule.include.some((pattern: string) => {
+            const regexPattern = pattern
+              .replace(/\./g, '\\.')
+              .replace(/\*/g, '.*')
+              .replace(/\?/g, '.');
+            return new RegExp(regexPattern).test(file.filename);
+          });
+        });
         
-        const comments = await this.reviewEnhancedFile(file);
+        const comments = await this.reviewEnhancedFile(file, matchingRules);
         allComments.push(...comments);
       }
 
@@ -86,13 +113,21 @@ export class CodeReviewService {
   /**
    * Reviews an enhanced file with changes and context
    * @param file The enhanced file to review
+   * @param matchingRules Rules that match this file
    * @returns Comments for the file
    */
-  private async reviewEnhancedFile(file: EnhancedPRFile): Promise<CodeReviewComment[]> {
+  private async reviewEnhancedFile(file: EnhancedPRFile, matchingRules: ReviewRule[] = []): Promise<CodeReviewComment[]> {
     try {
       // Initial analysis using the enhanced file
       core.info(`Analyzing changes in file ${file.filename}...`);
-      const initialAnalysis = await this.openaiService.analyzeCodeChanges(file);
+      
+      // Combine all matching rule prompts
+      const additionalPrompts = matchingRules
+        .map(rule => rule.prompt)
+        .filter(prompt => prompt)
+        .join('\n\n');
+            
+      const initialAnalysis = await this.openaiService.analyzeCodeChanges(file, additionalPrompts);
       
       // Parse comments and feedback
       core.info(`Parsing review results for ${file.filename}...`);
