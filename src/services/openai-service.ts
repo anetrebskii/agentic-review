@@ -128,20 +128,6 @@ export class OpenAIService {
         userPrompt += `\`\`\`\n${file.fullContent}\n\`\`\`\n\n`;
       }
       
-      userPrompt += 'Provide only concise, one-sentence feedback for each issue. ' +
-        'Format each issue as "Line X: [severity emoji + level] [issue description] - [fix suggestion]". ' +
-        'For severity, use: ' +
-        '🔴 **High** for critical issues or bugs, ' +
-        '🟠 **Medium** for code quality issues, ' +
-        '🟡 **Low** for style or minor improvements. ' +
-        'ONLY comment on lines that have been CHANGED or ADDED in this PR. ' +
-        'Use EXACTLY the line numbers shown at the beginning of each line in the changed content. ' +
-        'ONLY include comments where you can identify the exact line number. ' +
-        'DO NOT provide similar feedback for multiple issues in the same line. ' +
-        'If you cannot determine the exact line, or if the line was not changed, do not include that comment. ' +
-        'Ensure all issues have an exact line number reference. ' +
-        'Use feature sentences only - no explanations or reasoning.';
-
       core.debug(`Using model: ${this.model}`);
       core.debug(`Using rule prompt for file type: ${file.filename}`);
       

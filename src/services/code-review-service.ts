@@ -94,34 +94,15 @@ export class CodeReviewService {
       core.info(`Analyzing changes in file ${file.filename}...`);
       const initialAnalysis = await this.openaiService.analyzeCodeChanges(file);
       
-      // Start conversation for agentic review
-      const conversation = [
-        { role: 'user' as const, content: `Please review the changes to ${file.filename}` },
-        { role: 'assistant' as const, content: initialAnalysis }
-      ];
-      
-      // Make follow-up inquiries (agentic mode)
-      core.info(`Making follow-up inquiries for ${file.filename}...`);
-      const followUpAnalysis = await this.openaiService.makeFollowUpInquiry(
-        initialAnalysis,
-        file,
-        conversation
-      );
-      
       // Parse comments and feedback
       core.info(`Parsing review results for ${file.filename}...`);
-      const comments = this.parseReviewFeedback(file, initialAnalysis, followUpAnalysis);
+      const comments = this.parseReviewFeedback(file, initialAnalysis);
       
       return comments;
     } catch (error) {
       core.error(`Error reviewing file ${file.filename}: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
-  }
-  
-  // For backward compatibility
-  private async reviewFile(file: EnhancedPRFile): Promise<CodeReviewComment[]> {
-    return this.reviewEnhancedFile(file);
   }
   
   /**
@@ -167,8 +148,7 @@ export class CodeReviewService {
    */
   private parseReviewFeedback(
     file: EnhancedPRFile, 
-    initialAnalysis: string, 
-    followUpAnalysis: string
+    initialAnalysis: string
   ): CodeReviewComment[] {
     const comments: CodeReviewComment[] = [];
     
@@ -202,40 +182,7 @@ export class CodeReviewService {
         }
       }
     }
-    
-    // Process follow-up analysis if it contains content
-    if (followUpAnalysis && 
-        followUpAnalysis.trim() !== '' && 
-        followUpAnalysis !== 'No further inquiries.' &&
-        followUpAnalysis !== 'No additional issues identified.') {
-      
-      // Extract line-specific comments from follow-up analysis
-      const lineIssueRegex = /(?:Line|At line|In line|On line)\s+(\d+)(?:\s*[-:]\s*|\s*[:,]\s*|\s+)(.*)/gi;
-      let match;
-      
-      while ((match = lineIssueRegex.exec(followUpAnalysis)) !== null) {
-        const lineNumber = parseInt(match[1], 10);
-        const issueComment = match[2].trim();
-        
-        if (issueComment && lineNumber > 0) {
-          // Only include comments for changed lines
-          const isChangedLine = this.isChangedLine(file, lineNumber);
-          
-          if (isChangedLine) {
-            comments.push({
-              path: file.filename,
-              line: lineNumber,
-              // Don't set position here - let GitHub service calculate it
-              body: issueComment,
-              confidence: 100
-            });
-          } else {
-            core.debug(`Skipping comment for line ${lineNumber} in ${file.filename} as it's not a changed line`);
-          }
-        }
-      }
-    }
-    
+
     return comments;
   }
   
